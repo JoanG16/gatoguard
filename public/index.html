@@ -271,16 +271,16 @@ async function actualizarAnomalias() {
       $('#anomalias-resumen').textContent = 'Hay una alerta activa. Pulsa para ver los detalles.';
     }
 
-    async function cargarConfiguracionAvisos() {
-      try {
-        const res = await fetch(`/api/configuracion-gato?t=${Date.now()}`, { cache: 'no-store' });
-        if (res.ok) configuracionAvisos = await res.json();
-      } catch (err) { console.error('Error /api/configuracion-gato', err); }
-    }
-
   } catch (err) {
     console.error('Error /api/anomalias', err);
   }
+}
+
+async function cargarConfiguracionAvisos() {
+  try {
+    const res = await fetch(`/api/configuracion-gato?t=${Date.now()}`, { cache: 'no-store' });
+    if (res.ok) configuracionAvisos = await res.json();
+  } catch (err) { console.error('Error /api/configuracion-gato', err); }
 }
 
 async function actualizarRutinaEsperada() {
