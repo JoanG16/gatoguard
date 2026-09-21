@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: gatoguard-dashboard
+    env: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm run cloud
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: MQTT_URL
+        value: mqtt://broker.hivemq.com:1883
+      - key: TIME_ZONE
+        value: America/Bogota
+      - key: TARGET_MAC
+        sync: false
+      - key: MIN_RSSI_DBM
+        value: "-65"
+      - key: ROUTINE_CONFIRM_POLLS
+        value: "3"

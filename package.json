@@ -8,6 +8,7 @@
     "init-db": "node db_init.js",
     "detect-zone": "node zone_detector.js",
     "dashboard": "node server.js",
+    "cloud": "node cloud_start.js",
     "dashboard:watch": "nodemon server.js",
     "learn-routine": "node routine_learning_job.js",
     "simulate-week": "node simulate_week.js",

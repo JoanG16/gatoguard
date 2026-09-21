@@ -6,8 +6,9 @@ const { Pool } = require('pg');
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, statement_timeout: 10000, query_timeout: 10000 });
 pool.on('error', (err) => console.error('[ERROR] Pool de Postgres:', err.message));
 const app = express();
-const PORT_CANDIDATES = Array.from(new Set([Number(process.env.DASHBOARD_PORT || 3000), 3001, 3002, 3003, 3010]));
+const PORT_CANDIDATES = Array.from(new Set([Number(process.env.PORT || process.env.DASHBOARD_PORT || 3000), 3001, 3002, 3003, 3010]));
 app.use(express.json());
+app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 async function ensureDeviceSchema() {
   try {
