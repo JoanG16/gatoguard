@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GatoGuard - Agenda</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined&family=Lexend:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>body { visibility: hidden; font-family: Arial, sans-serif; } body.ui-ready { visibility: visible; }</style>
+  <script>tailwind.config={theme:{extend:{colors:{surface:"#f3fbfd","primary":"#8f4e00","primary-container":"#ff9f43","on-surface":"#151d1f","on-surface-variant":"#544437","surface-container-lowest":"#ffffff","surface-container-low":"#edf5f7","surface-variant":"#dce4e6","error":"#ba1a1a","error-container":"#ffdad6","on-error-container":"#93000a"},fontFamily:{headline:["Lexend"],body:["Quicksand"]}}}}</script>
+</head>
+<body class="bg-surface text-on-surface font-body min-h-screen pb-24">
+  <header class="fixed top-0 z-50 w-full bg-surface shadow-sm px-5 py-4 flex justify-between items-center">
+    <a href="index.html" class="text-primary"><span class="material-symbols-outlined">arrow_back</span></a>
+    <h1 class="font-headline font-bold text-xl text-primary">Agenda</h1><span class="w-6"></span>
+  </header>
+  <main class="pt-24 px-5 max-w-3xl mx-auto space-y-5">
+    <section class="rounded-2xl bg-white p-5 shadow-sm">
+      <div class="mb-3 flex items-center justify-between">
+        <button id="mes-anterior" class="rounded-full p-2 hover:bg-surface-container-low"><span class="material-symbols-outlined">chevron_left</span></button>
+        <h2 id="titulo-mes" class="font-headline text-lg font-semibold capitalize">Cargando...</h2>
+        <button id="mes-siguiente" class="rounded-full p-2 hover:bg-surface-container-low"><span class="material-symbols-outlined">chevron_right</span></button>
+      </div>
+      <div class="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-on-surface-variant mb-1">
+        <span>Lu</span><span>Ma</span><span>Mi</span><span>Ju</span><span>Vi</span><span>Sa</span><span>Do</span>
+      </div>
+      <div id="grid-dias" class="grid grid-cols-7 gap-1"></div>
+      <div class="mt-4 flex flex-wrap gap-3 text-xs text-on-surface-variant">
+        <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-error"></span> Con alertas</span>
+        <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-primary"></span> Con recordatorio</span>
+      </div>
+    </section>
+
+    <section id="panel-dia" class="rounded-2xl bg-white p-5 shadow-sm hidden">
+      <div class="mb-3 flex items-center justify-between">
+        <h2 id="titulo-dia" class="font-headline text-xl font-semibold">Día</h2>
+        <button id="agregar-recordatorio" class="flex items-center gap-1 rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-white"><span class="material-symbols-outlined text-base">add_alert</span>Recordatorio</button>
+      </div>
+
+      <div class="mb-4 flex gap-2 rounded-xl bg-surface-container-low p-1 text-sm font-semibold">
+        <button data-tab="alertas" class="tab-dia flex-1 rounded-lg py-2">Alertas</button>
+        <button data-tab="historial" class="tab-dia flex-1 rounded-lg py-2">Historial</button>
+        <button data-tab="recordatorios" class="tab-dia flex-1 rounded-lg py-2">Recordatorios</button>
+      </div>
+
+      <div id="tab-alertas">
+        <div id="alertas-dia" class="space-y-2"><p class="text-sm text-on-surface-variant">Sin alertas ese día.</p></div>
+      </div>
+      <div id="tab-historial" class="hidden">
+        <div id="historial-dia" class="space-y-2"><p class="text-sm text-on-surface-variant">Sin movimientos ese día.</p></div>
+      </div>
+      <div id="tab-recordatorios" class="hidden">
+        <div id="recordatorios-dia" class="space-y-2"><p class="text-sm text-on-surface-variant">Sin recordatorios ese día.</p></div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="dialogo-recordatorio" class="rounded-xl p-0 shadow-xl backdrop:bg-black/40">
+    <form id="formulario-recordatorio" method="dialog" class="p-6 space-y-4 w-[min(90vw,26rem)]">
+      <h2 class="text-xl font-semibold">Nuevo recordatorio</h2>
+      <label class="block text-sm font-semibold">Fecha
+        <input id="recordatorio-fecha" type="date" required class="mt-1 w-full rounded-xl border border-surface-variant px-3 py-2">
+      </label>
+      <label class="block text-sm font-semibold">Hora
+        <input id="recordatorio-hora" type="time" required class="mt-1 w-full rounded-xl border border-surface-variant px-3 py-2">
+      </label>
+      <label class="block text-sm font-semibold">Título
+        <input id="recordatorio-titulo" type="text" required maxlength="120" placeholder="Ej: Dar medicamento a Michi" class="mt-1 w-full rounded-xl border border-surface-variant px-3 py-2">
+      </label>
+      <label class="flex items-center gap-2 text-sm"><input id="recordatorio-notificar" type="checkbox" checked> Avisarme cuando llegue la hora</label>
+      <div class="flex justify-end gap-2">
+        <button value="cancel" class="rounded-lg border px-4 py-2">Cancelar</button>
+        <button id="guardar-recordatorio" value="default" class="rounded-lg bg-primary px-4 py-2 text-white">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirmar-borrado" class="rounded-xl p-0 shadow-xl backdrop:bg-black/40">
+    <form method="dialog" class="p-6 space-y-4 max-w-sm">
+      <h2 class="text-xl font-semibold">Borrar alerta</h2>
+      <p>Esta acción no se puede deshacer.</p>
+      <label class="flex gap-2 items-start"><input id="confirmacion-borrado" type="checkbox" class="mt-1"> Estoy segura de que quiero borrar esta alerta.</label>
+      <div class="flex justify-end gap-2"><button value="cancel" class="rounded-lg border px-4 py-2">Cancelar</button><button id="aceptar-borrado" value="default" disabled class="rounded-lg bg-error px-4 py-2 text-white disabled:opacity-40">Aceptar</button></div>
+    </form>
+  </dialog>
+  <dialog id="dialogo-comentario" class="rounded-xl p-0 shadow-xl backdrop:bg-black/40">
+    <form id="formulario-comentario" method="dialog" class="p-6 space-y-4 w-[min(90vw,28rem)]">
+      <h2 class="text-xl font-semibold">Añadir comentario</h2>
+      <textarea id="texto-comentario" rows="4" maxlength="500" required placeholder="Escribe una nota sobre esta alerta..." class="w-full rounded-lg border border-surface-variant bg-white p-3"></textarea>
+      <div class="flex justify-end gap-2">
+        <button type="button" id="cancelar-comentario" class="rounded-lg border px-4 py-2">Cancelar</button>
+        <button type="submit" class="rounded-lg bg-primary px-4 py-2 text-white">Guardar comentario</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="dialogo-detalle" class="rounded-xl p-0 shadow-xl backdrop:bg-black/40">
+    <div id="contenido-detalle" class="p-6 w-[min(90vw,34rem)]"></div>
+  </dialog>
+
+  <nav class="fixed bottom-0 left-0 z-50 flex w-full justify-around rounded-t-xl bg-surface px-2 py-2 shadow-[0px_-4px_20px_rgba(0,0,0,0.05)] md:hidden">
+    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="index.html"><span class="material-symbols-outlined">home</span><span class="text-xs">Home</span></a>
+    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="estadisticas.html"><span class="material-symbols-outlined">analytics</span><span class="text-xs">Estadísticas</span></a>
+    <a class="flex flex-col items-center rounded-full bg-primary-container px-3 py-1 text-on-primary-container" href="calendario.html"><span class="material-symbols-outlined">calendar_month</span><span class="text-xs">Agenda</span></a>
+    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="dispositivos.html"><span class="material-symbols-outlined">wifi_tethering</span><span class="text-xs">Dispositivos</span></a>
+    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="perfil.html"><span class="material-symbols-outlined">pets</span><span class="text-xs">Perfil</span></a>
+  </nav>
+
+  <script>
+    const $ = s => document.querySelector(s);
+    const hoy = new Date();
+    let vista = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    let diaSeleccionado = null;
+    let alertasPorDia = new Map();
+    let recordatoriosPorDia = new Map();
+    let alertasActuales = [];
+    let alertaParaComentar = null;
+    let alertaSeleccionada = null;
+
+    const modalBorrado = $('#confirmar-borrado');
+    const checkBorrado = $('#confirmacion-borrado');
+    const aceptarBorrado = $('#aceptar-borrado');
+    const dialogoComentario = $('#dialogo-comentario');
+    const formularioComentario = $('#formulario-comentario');
+    const textoComentario = $('#texto-comentario');
+    const tituloComentario = formularioComentario.querySelector('h2');
+    const dialogoDetalle = $('#dialogo-detalle');
+    const contenidoDetalle = $('#contenido-detalle');
+
+    const claveMes = fecha => `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}`;
+    const claveDia = fecha => `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')}`;
+    const fechaTexto = valor => new Date(valor).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' });
+    const horaCorta = valor => new Date(valor).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+
+    function nivel(alerta) {
+      if (alerta.capa === 1) return 'Señal perdida';
+      if (alerta.capa === 2) return 'Cambio estadístico';
+      return 'Patrón inusual confirmado';
+    }
+
+    function iconoZona(nombre) {
+      const n = (nombre || '').toLowerCase();
+      if (n.includes('comedor') || n.includes('cocina')) return 'restaurant';
+      if (n.includes('arenero') || n.includes('baño')) return 'cleaning_services';
+      if (n.includes('cama') || n.includes('dormitorio')) return 'bed';
+      if (n.includes('escritorio') || n.includes('oficina')) return 'chair';
+      if (n.includes('sala') || n.includes('living')) return 'weekend';
+      return 'location_on';
+    }
+
+    function duracionEntre(inicioISO, finISO) {
+      const min = Math.round((new Date(finISO).getTime() - new Date(inicioISO).getTime()) / 60000);
+      if (min < 1) return 'menos de 1 min';
+      if (min < 60) return `${min} min`;
+      const horas = Math.floor(min / 60);
+      return `${horas}h ${min % 60}min`;
+    }
+
+    async function cargarMes() {
+      const mes = claveMes(vista);
+      $('#titulo-mes').textContent = vista.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+      const [anomRes, recRes] = await Promise.all([
+        fetch(`/api/anomalias-por-dia?mes=${mes}&t=${Date.now()}`, { cache: 'no-store' }),
+        fetch(`/api/recordatorios?mes=${mes}&t=${Date.now()}`, { cache: 'no-store' }),
+      ]);
+      const anomalias = anomRes.ok ? await anomRes.json() : [];
+      const recordatorios = recRes.ok ? await recRes.json() : [];
+      alertasPorDia = new Map(anomalias.map(a => [String(a.fecha).slice(0, 10), a]));
+      recordatoriosPorDia = new Map();
+      recordatorios.forEach(r => {
+        const clave = String(r.fecha).slice(0, 10);
+        if (!recordatoriosPorDia.has(clave)) recordatoriosPorDia.set(clave, []);
+        recordatoriosPorDia.get(clave).push(r);
+      });
+      renderGrid();
+    }
+
+    function renderGrid() {
+      const grid = $('#grid-dias');
+      grid.innerHTML = '';
+      const primerDia = new Date(vista.getFullYear(), vista.getMonth(), 1);
+      const diasEnMes = new Date(vista.getFullYear(), vista.getMonth() + 1, 0).getDate();
+      const offset = (primerDia.getDay() + 6) % 7; // lunes = 0
+      for (let i = 0; i < offset; i += 1) grid.appendChild(document.createElement('span'));
+      const hoyClave = claveDia(new Date());
+      for (let d = 1; d <= diasEnMes; d += 1) {
+        const fecha = new Date(vista.getFullYear(), vista.getMonth(), d);
+        const clave = claveDia(fecha);
+        const tieneAlertas = alertasPorDia.has(clave);
+        const tieneRecordatorio = recordatoriosPorDia.has(clave);
+        const boton = document.createElement('button');
+        boton.type = 'button';
+        boton.className = `relative flex h-11 flex-col items-center justify-center rounded-xl text-sm font-semibold ${clave === hoyClave ? 'ring-2 ring-primary' : ''} ${clave === diaSeleccionado ? 'bg-primary text-white' : 'bg-surface-container-low text-on-surface'}`;
+        boton.innerHTML = `<span>${d}</span><span class="absolute bottom-1 flex gap-0.5">${tieneAlertas ? '<span class="h-1.5 w-1.5 rounded-full bg-error"></span>' : ''}${tieneRecordatorio ? '<span class="h-1.5 w-1.5 rounded-full bg-primary-container"></span>' : ''}</span>`;
+        boton.addEventListener('click', () => seleccionarDia(clave));
+        grid.appendChild(boton);
+      }
+    }
+
+    function tarjetaAlerta(alerta) {
+      const revisada = Boolean(alerta.revisada_en);
+      return `<article data-alerta-id="${alerta.id}" class="relative cursor-pointer rounded-xl border ${revisada ? 'border-surface-variant bg-white' : 'border-error/30 bg-error-container'} p-3 pr-3 transition-shadow hover:shadow-md">
+        <div class="flex gap-3"><span class="material-symbols-outlined ${revisada ? 'text-on-surface-variant' : 'text-error'}">${revisada ? 'check_circle' : 'warning'}</span>
+        <div class="flex-1"><div class="flex justify-between gap-2"><h3 class="font-semibold text-sm">${nivel(alerta)}</h3>${revisada ? '<span class="text-xs text-secondary">Revisada</span>' : ''}</div>
+        <p class="text-sm mt-1">${alerta.descripcion}</p>
+        <p class="text-xs text-on-surface-variant mt-1">${horaCorta(alerta.detectada_en)}</p>
+        ${alerta.comentario ? `<p class="mt-2 text-xs bg-white/70 rounded-lg p-2">Nota: ${alerta.comentario}</p>` : ''}</div></div>
+      </article>`;
+    }
+
+    async function seleccionarDia(clave) {
+      diaSeleccionado = clave;
+      renderGrid();
+      $('#panel-dia').classList.remove('hidden');
+      const fecha = new Date(`${clave}T00:00:00`);
+      $('#titulo-dia').textContent = fecha.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' });
+
+      const [alertasRes, historialRes] = await Promise.all([
+        fetch(`/api/anomalias-dia/${clave}?t=${Date.now()}`, { cache: 'no-store' }),
+        fetch(`/api/historial-dia/${clave}?t=${Date.now()}`, { cache: 'no-store' }),
+      ]);
+      alertasActuales = alertasRes.ok ? await alertasRes.json() : [];
+      $('#alertas-dia').innerHTML = alertasActuales.length
+        ? alertasActuales.map(tarjetaAlerta).join('')
+        : '<p class="text-sm text-on-surface-variant">Sin alertas ese día.</p>';
+
+      const historial = historialRes.ok ? await historialRes.json() : [];
+      $('#historial-dia').innerHTML = historial.length
+        ? historial.map(e => `<article class="flex items-center gap-3 rounded-xl border border-surface-variant p-3">
+            <span class="material-symbols-outlined text-secondary">${iconoZona(e.nombre_zona)}</span>
+            <div class="flex-1"><p class="text-sm font-semibold">${e.nombre_zona}</p><p class="text-xs text-on-surface-variant">${horaCorta(e.cambiado_en)} · ${duracionEntre(e.cambiado_en, e.fin)}</p></div>
+          </article>`).join('')
+        : '<p class="text-sm text-on-surface-variant">Sin movimientos ese día.</p>';
+
+      const recordatorios = recordatoriosPorDia.get(clave) || [];
+      $('#recordatorios-dia').innerHTML = recordatorios.length
+        ? recordatorios.map(r => `<article class="flex items-center justify-between rounded-xl border border-surface-variant p-3"><div><p class="text-sm font-semibold">${r.titulo}</p><p class="text-xs text-on-surface-variant">${String(r.hora).slice(0, 5)} ${r.notificar ? '· Con aviso' : ''}</p></div><button data-id="${r.id}" class="borrar-recordatorio text-error"><span class="material-symbols-outlined text-lg">delete</span></button></article>`).join('')
+        : '<p class="text-sm text-on-surface-variant">Sin recordatorios ese día.</p>';
+
+      $('#recordatorios-dia').querySelectorAll('.borrar-recordatorio').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          await fetch(`/api/recordatorios/${btn.dataset.id}`, { method: 'DELETE' });
+          await cargarMes();
+          seleccionarDia(clave);
+        });
+      });
+    }
+
+    // --- Tabs dentro del panel del día ---
+    document.querySelectorAll('.tab-dia').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-dia').forEach(b => b.classList.remove('bg-primary', 'text-white'));
+        btn.classList.add('bg-primary', 'text-white');
+        ['alertas', 'historial', 'recordatorios'].forEach(tab => {
+          $(`#tab-${tab}`).classList.toggle('hidden', tab !== btn.dataset.tab);
+        });
+      });
+    });
+    document.querySelector('.tab-dia[data-tab="alertas"]').classList.add('bg-primary', 'text-white');
+
+    // --- Detalle de alerta (modal), igual que alertas.html ---
+    function abrirDetalle(alerta) {
+      if (!alerta) return;
+      alertaSeleccionada = alerta;
+      const revisada = Boolean(alerta.revisada_en);
+      contenidoDetalle.innerHTML = `<div class="flex items-start justify-between gap-3"><div><p class="text-sm text-on-surface-variant">${nivel(alerta)}</p><h2 class="text-2xl font-semibold">Detalle de la alerta</h2></div><button type="button" data-detail-action="cerrar" class="rounded-full p-1 hover:bg-surface-container-low"><span class="material-symbols-outlined">close</span></button></div>
+        <div class="mt-5 space-y-3"><p>${alerta.descripcion}</p><p class="text-sm text-on-surface-variant">Detectada: ${fechaTexto(alerta.detectada_en)}${revisada ? ` · Revisada: ${fechaTexto(alerta.revisada_en)}` : ''}</p>
+        <div class="rounded-lg bg-surface-container-low p-3"><p class="text-sm font-semibold">Nota</p>${alerta.comentario ? `<p class="mt-1">${alerta.comentario}</p><div class="mt-3 flex gap-2"><button type="button" data-detail-action="editar-nota" class="rounded-lg border bg-white px-3 py-2 text-sm">Editar</button><button type="button" data-detail-action="eliminar-nota" class="rounded-lg border border-error bg-white px-3 py-2 text-sm text-error">Eliminar</button></div>` : '<p class="mt-1 text-sm text-on-surface-variant">No hay notas para esta alerta.</p>'}</div></div>
+        <div class="mt-5 flex justify-end gap-2">
+          ${revisada ? '' : `<button type="button" data-detail-action="revisar" class="rounded-lg border px-4 py-2 text-sm">Marcar revisada</button>`}
+          <button type="button" data-detail-action="comentar" class="rounded-lg border px-4 py-2 text-sm">Comentar</button>
+          <button type="button" data-detail-action="borrar" class="rounded-lg border border-error px-4 py-2 text-sm text-error">Borrar</button>
+          <button type="button" data-detail-action="cerrar" class="rounded-lg bg-primary px-4 py-2 text-sm text-white">Cerrar</button>
+        </div>`;
+      dialogoDetalle.showModal();
+    }
+
+    $('#alertas-dia').addEventListener('click', event => {
+      const card = event.target.closest('[data-alerta-id]');
+      if (card) abrirDetalle(alertasActuales.find(a => String(a.id) === card.dataset.alertaId));
+    });
+
+    contenidoDetalle.addEventListener('click', async event => {
+      const button = event.target.closest('button[data-detail-action]');
+      if (!button || !alertaSeleccionada) return;
+      const accion = button.dataset.detailAction;
+      if (accion === 'cerrar') { dialogoDetalle.close(); return; }
+      if (accion === 'editar-nota' || accion === 'comentar') {
+        alertaParaComentar = String(alertaSeleccionada.id);
+        tituloComentario.textContent = alertaSeleccionada.comentario ? 'Editar nota' : 'Añadir comentario';
+        textoComentario.value = alertaSeleccionada.comentario || '';
+        dialogoComentario.showModal();
+        textoComentario.focus();
+        return;
+      }
+      if (accion === 'eliminar-nota') {
+        const res = await fetch(`/api/anomalias/${alertaSeleccionada.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ accion: 'comentar', comentario: '' }) });
+        if (!res.ok) { alert('No se pudo eliminar la nota.'); return; }
+        dialogoDetalle.close();
+        await seleccionarDia(diaSeleccionado);
+        await cargarMes();
+        return;
+      }
+      if (accion === 'revisar') {
+        const res = await fetch(`/api/anomalias/${alertaSeleccionada.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ accion: 'revisar' }) });
+        if (!res.ok) { alert('No se pudo marcar como revisada.'); return; }
+        dialogoDetalle.close();
+        await seleccionarDia(diaSeleccionado);
+        await cargarMes();
+        return;
+      }
+      if (accion === 'borrar') {
+        checkBorrado.checked = false;
+        aceptarBorrado.disabled = true;
+        aceptarBorrado.dataset.id = alertaSeleccionada.id;
+        dialogoDetalle.close();
+        modalBorrado.showModal();
+      }
+    });
+
+    document.querySelector('#cancelar-comentario').addEventListener('click', () => dialogoComentario.close());
+    formularioComentario.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!alertaParaComentar || !textoComentario.value.trim()) return;
+      const res = await fetch(`/api/anomalias/${alertaParaComentar}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ accion: 'comentar', comentario: textoComentario.value.trim() }) });
+      if (!res.ok) { alert('No se pudo guardar el comentario.'); return; }
+      dialogoComentario.close();
+      if (alertaSeleccionada && String(alertaSeleccionada.id) === alertaParaComentar) {
+        alertaSeleccionada.comentario = textoComentario.value.trim();
+      }
+      alertaParaComentar = null;
+      await seleccionarDia(diaSeleccionado);
+      await cargarMes();
+    });
+
+    checkBorrado.addEventListener('change', () => { aceptarBorrado.disabled = !checkBorrado.checked; });
+    aceptarBorrado.addEventListener('click', async event => {
+      event.preventDefault();
+      if (!checkBorrado.checked) return;
+      const res = await fetch(`/api/anomalias/${aceptarBorrado.dataset.id}`, { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ confirmar: true }) });
+      modalBorrado.close();
+      if (!res.ok) alert('No se pudo borrar la alerta.');
+      await seleccionarDia(diaSeleccionado);
+      await cargarMes();
+    });
+
+    $('#mes-anterior').addEventListener('click', () => { vista = new Date(vista.getFullYear(), vista.getMonth() - 1, 1); cargarMes(); });
+    $('#mes-siguiente').addEventListener('click', () => { vista = new Date(vista.getFullYear(), vista.getMonth() + 1, 1); cargarMes(); });
+
+    $('#agregar-recordatorio').addEventListener('click', () => {
+      if (!diaSeleccionado) return;
+      $('#recordatorio-fecha').value = diaSeleccionado;
+      $('#recordatorio-hora').value = '';
+      $('#recordatorio-titulo').value = '';
+      $('#recordatorio-notificar').checked = true;
+      $('#dialogo-recordatorio').showModal();
+    });
+
+    $('#formulario-recordatorio').addEventListener('submit', async e => {
+      if (e.submitter?.value !== 'default') return;
+      e.preventDefault();
+      const cuerpo = {
+        fecha: $('#recordatorio-fecha').value,
+        hora: $('#recordatorio-hora').value,
+        titulo: $('#recordatorio-titulo').value,
+        notificar: $('#recordatorio-notificar').checked,
+      };
+      if (!cuerpo.fecha || !cuerpo.hora || !cuerpo.titulo.trim()) { alert('Completa fecha, hora y título.'); return; }
+      const res = await fetch('/api/recordatorios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); alert(err.error || 'No se pudo guardar el recordatorio.'); return; }
+      $('#dialogo-recordatorio').close();
+      await cargarMes();
+      seleccionarDia(cuerpo.fecha);
+    });
+
+    if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+
+    cargarMes().catch(console.error);
+    setInterval(() => cargarMes().catch(console.error), 30000);
+  </script>
+  <script>window.addEventListener('load', () => document.body.classList.add('ui-ready')); setTimeout(() => document.body.classList.add('ui-ready'), 1500);</script>
+</body>
+</html>

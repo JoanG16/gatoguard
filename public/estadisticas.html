@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GatoGuard - Estadísticas</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined&family=Lexend:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>body{visibility:hidden;font-family:Arial,sans-serif}body.ui-ready{visibility:visible}</style>
+  <script>tailwind.config={theme:{extend:{colors:{surface:"#f3fbfd",primary:"#8f4e00","primary-container":"#ff9f43","on-surface":"#151d1f","on-surface-variant":"#544437","surface-container-low":"#edf5f7",secondary:"#006b5b"},fontFamily:{headline:["Lexend"],body:["Quicksand"]}}}}</script>
+</head>
+<body class="min-h-screen bg-surface pb-24 text-on-surface font-body">
+  <header class="fixed top-0 z-50 flex w-full items-center justify-between bg-surface px-5 py-4 shadow-sm"><a href="index.html" class="text-primary"><span class="material-symbols-outlined">arrow_back</span></a><h1 class="font-headline text-xl font-bold text-primary">Estadísticas</h1><span class="w-6"></span></header>
+  <main class="mx-auto max-w-3xl space-y-5 px-5 pt-24">
+    <section><h2 id="titulo" class="font-headline text-3xl font-semibold">Resumen de Michi</h2><p class="mt-1 text-on-surface-variant">Observa cómo distribuye su tiempo y cuánto sigue su rutina.</p></section>
+    <section class="rounded-2xl bg-white p-5 shadow-sm">
+      <div class="mb-4 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2"><span class="material-symbols-outlined text-primary">schedule</span><h2 class="font-headline text-xl font-semibold">Rutina habitual</h2></div>
+        <div class="flex shrink-0 items-center gap-1"><button id="anterior" class="rounded-full p-2 hover:bg-surface-container-low" aria-label="Periodo anterior"><span class="material-symbols-outlined">chevron_left</span></button><label class="relative block"><select id="modo" class="h-10 min-w-[100px] appearance-none rounded-xl border border-surface-variant bg-white px-3 py-2 pr-8 text-center text-sm font-semibold leading-5"><option value="week">Semana</option><option value="month">Mes</option></select><span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant"><span class="material-symbols-outlined text-lg">expand_more</span></span></label><button id="siguiente" class="rounded-full p-2 hover:bg-surface-container-low" aria-label="Periodo siguiente"><span class="material-symbols-outlined">chevron_right</span></button>
+        </div>
+      </div>
+      <p id="periodo" class="mb-3 text-center text-sm text-on-surface-variant">Cargando...</p>
+      <div id="grafico-rutina" class="overflow-x-auto"></div><div id="leyenda-rutina" class="mt-4 flex flex-wrap gap-2"></div>
+    </section>
+    <section class="rounded-2xl bg-white p-5 shadow-sm"><div class="mb-4 flex items-center gap-2"><span class="material-symbols-outlined text-primary">task_alt</span><div><h2 class="font-headline text-xl font-semibold">Cumplimiento por lugar</h2><p id="subtitulo-cumplimiento" class="text-sm text-on-surface-variant">Días en los que siguió las franjas habituales.</p></div></div><div id="cumplimiento-lugares" class="grid grid-cols-3 gap-2"></div></section>
+    <section id="indicador" class="rounded-2xl bg-white p-5 shadow-sm"></section>
+  </main>
+  <dialog id="dialogo-hora" class="rounded-xl p-0 shadow-xl backdrop:bg-black/40">
+    <div class="p-6 space-y-3 w-[min(90vw,26rem)]">
+      <div class="flex items-center justify-between"><h2 id="titulo-hora" class="text-lg font-semibold">Detalle</h2><button id="cerrar-hora" class="rounded-full p-1 hover:bg-surface-container-low"><span class="material-symbols-outlined">close</span></button></div>
+      <div id="detalle-hora" class="space-y-2 text-sm"></div>
+    </div>
+  </dialog>
+  <nav class="fixed bottom-0 left-0 z-50 flex w-full justify-around rounded-t-xl bg-surface px-2 py-2 shadow-[0px_-4px_20px_rgba(0,0,0,0.05)] md:hidden">
+    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="index.html"><span class="material-symbols-outlined">home</span><span class="text-xs">Home</span></a>
+    <a class="flex flex-col items-center rounded-full bg-primary-container px-3 py-1 text-on-primary-container" href="estadisticas.html"><span class="material-symbols-outlined">analytics</span><span class="text-xs">Estadísticas</span></a>
+    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="calendario.html"><span class="material-symbols-outlined">calendar_month</span><span class="text-xs">Agenda</span></a>
+    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="dispositivos.html"><span class="material-symbols-outlined">wifi_tethering</span><span class="text-xs">Dispositivos</span></a>
+    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="perfil.html"><span class="material-symbols-outlined">pets</span><span class="text-xs">Perfil</span></a>
+  </nav>
+  <script>
+    const colores=['#f59e0b','#0d9488','#3b82f6','#8b5cf6','#ec4899','#84cc16','#ef4444','#06b6d4'];
+    const iconos={Comedor:'restaurant',Cocina:'soup_kitchen',Escritorio:'desk',Arenero:'inventory_2',Sala:'weekend',Dormitorio:'bed'};
+    let modo='week', desplazamiento=0;
+    const $=s=>document.querySelector(s);
+    const hora=min=>`${String(Math.floor(Number(min)%1440/60)).padStart(2,'0')}:${String(Number(min)%60).padStart(2,'0')}`;
+    const minutosTexto=min=>{const h=Math.floor(min/60),m=min%60;return h?`${h} h ${m} min`:`${m} min`};
+    const fechaTexto=valor=>new Date(valor).toLocaleDateString('es-CO',{day:'2-digit',month:'short'});
+    async function cargar(){
+      const [estadisticasRes,rutinaRes]=await Promise.all([fetch(`/api/estadisticas?modo=${modo}&desplazamiento=${desplazamiento}&t=${Date.now()}`,{cache:'no-store'}),fetch(`/api/rutina?t=${Date.now()}`,{cache:'no-store'})]);
+      const res=estadisticasRes;
+      if(!res.ok) throw new Error('No se pudieron cargar las estadísticas');
+      const data=await res.json(), rutina=await rutinaRes.json();
+      const dias=modo==='month'?31:7;
+      const inicioPeriodo=new Date(data.inicio);
+      const inicioLocal=new Date(inicioPeriodo.getTime()+inicioPeriodo.getTimezoneOffset()*60000);
+      const inicioTexto=inicioLocal.toISOString().slice(0,10);
+      const actividadRes=await fetch(`/api/rutina-periodo?dias=${dias}&inicio=${inicioTexto}&t=${Date.now()}`,{cache:'no-store'});
+      if(!actividadRes.ok) throw new Error('No se pudo cargar la actividad del periodo');
+      const actividad=await actividadRes.json();
+      $('#titulo').textContent=`Resumen de ${data.nombre}`;
+      $('#periodo').textContent=`${fechaTexto(data.inicio)} - ${fechaTexto(data.fin)}`;
+      const fechas=[]; for(let i=0;i<dias;i+=1){const d=new Date(inicioLocal);d.setDate(d.getDate()+i);fechas.push(d.toISOString().slice(0,10))}
+      const ocupa=(inicio,fin,min)=>Number(inicio)<min+60&&Number(fin)>min;
+      const zonas=[...new Set([...rutina.map(x=>x.nombre_zona), ...actividad.map(x=>x.nombre_zona)])];
+      const esperadoPorDia=Array.from({length:dias},()=>Array.from({length:24},()=>null));
+      rutina.forEach(item=>{for(let h=0;h<24;h+=1){if(ocupa(item.franja_horaria,Number(item.franja_horaria)+Number(item.duracion_promedio_min),h*60)) esperadoPorDia.forEach(dia=>{dia[h]=item.nombre_zona})}});
+      const actividadPorDia=fechas.map(fecha=>Array.from({length:24},(_,h)=>actividad.find(item=>String(item.fecha).slice(0,10)===fecha&&ocupa(item.inicio_min,item.fin_min,h*60))?.nombre_zona||null));
+      const cumplimiento=zonas.map((zona,index)=>{const esperados=fechas.map((_,dia)=>esperadoPorDia[dia].filter(x=>x===zona).length);const aciertos=fechas.map((_,dia)=>esperadoPorDia[dia].filter((x,h)=>x===zona&&actividadPorDia[dia][h]===zona).length);const diasCumplidos=aciertos.filter((x,dia)=>esperados[dia]>0&&x/esperados[dia]>=0.8).length;const totalEsperado=esperados.reduce((s,x)=>s+x,0);const porcentaje=Math.round(aciertos.reduce((s,x)=>s+x,0)/Math.max(1,totalEsperado)*100);return{zona,diasCumplidos,porcentaje,indice:index}});
+      const cumplimientoDiario=fechas.map((_,dia)=>{const esperado=esperadoPorDia[dia].filter(Boolean).length;const aciertos=esperadoPorDia[dia].filter((zona,h)=>zona&&actividadPorDia[dia][h]===zona).length;return esperado?aciertos/esperado:0});
+      const general=Math.round(cumplimientoDiario.reduce((s,x)=>s+x,0)/Math.max(1,cumplimientoDiario.length)*100);
+      const mensaje=general>=90?['Excelente','¡Excelente!','Tu gatito está siguiendo su rutina muy bien. ¡Qué buen trabajo! 🐾','bg-emerald-50 border-emerald-200']:general>=75?['Muy bien','¡Vas muy bien!','Tu gatito está siguiendo su rutina la mayoría de los días. ¡Sigue así! 🐾','bg-green-50 border-green-200']:general>=60?['Bien','¡Buen trabajo!','Tu gatito está siguiendo su rutina, aunque algunos días puede mejorar. ¡Poco a poco! 🐱','bg-yellow-50 border-yellow-200']:general>=40?['En progreso','¡Sigamos trabajando!','Tu gatito está adaptándose a su rutina. Con un poco de constancia, lo conseguiremos. 🐾','bg-orange-50 border-orange-200']:['Necesita mejorar','¡No te preocupes!','Tu gatito todavía está adaptándose a su rutina. Cada día es una nueva oportunidad. 🐱💙','bg-red-50 border-red-200'];
+      $('#indicador').className=`rounded-2xl border p-5 shadow-sm ${mensaje[3]}`;
+      $('#indicador').innerHTML=`<p class="text-sm font-semibold text-on-surface-variant">${mensaje[0]}</p><h2 class="mt-1 font-headline text-xl font-semibold">${mensaje[1]}</h2><p class="mt-1 text-on-surface-variant">${mensaje[2]}</p>`;
+      $('#subtitulo-cumplimiento').textContent=modo==='week'?'Días cumplidos de los 7 días de la semana.':'Días cumplidos del mes seleccionado.';
+      $('#cumplimiento-lugares').innerHTML= cumplimiento.length?cumplimiento.map(x=>{const c=colores[x.indice%colores.length];return `<article class="flex min-h-28 flex-col items-center justify-center rounded-xl p-2 text-center" style="background:${c}18;color:${c}"><span class="material-symbols-outlined text-2xl">${iconos[x.zona]||'location_on'}</span><p class="mt-1 truncate max-w-full text-xs font-semibold">${x.zona}</p><strong class="mt-1 text-lg">${x.diasCumplidos}/${dias}</strong><span class="text-xs font-semibold">${x.porcentaje}%</span></article>`}).join(''):'<p class="text-on-surface-variant">Aún no hay una rutina aprendida.</p>';
+      const hoyLocal=new Date().toLocaleDateString('en-CA',{timeZone:'America/Bogota'});
+      // Tabla de rutina por hora: cuadrícula coloreada por zona (24 filas), con borde verde si coincide con lo esperado y rojo si no.
+      const colorZona=zona=>zona?colores[zonas.indexOf(zona)%colores.length]:null;
+      $('#grafico-rutina').innerHTML=`<div class="min-w-[${Math.max(360,dias*40)}px] rounded-2xl bg-surface-container-low p-2"><div class="grid gap-1" style="grid-template-columns:40px repeat(${dias},minmax(26px,1fr))"><span></span>${fechas.map(f=>`<span class="rounded-lg bg-white py-1 text-center text-[8px] font-semibold ${f===hoyLocal?'shadow-[0_0_0_2px_#0d9488,0_3px_8px_rgba(13,148,136,0.25)]':''}">${f.slice(8,10)}/${f.slice(5,7)}</span>`).join('')}${Array.from({length:24},(_,h)=>`<span class="h-6 text-right text-[9px] leading-6 text-on-surface-variant">${String(h).padStart(2,'0')}:00</span>${fechas.map((f,dia)=>{
+        const esperado=esperadoPorDia[dia][h];const real=actividadPorDia[dia][h];const cumplio=esperado&&real===esperado;const sinDato=!esperado&&!real;const esFuturo=new Date(`${f}T${String(h).padStart(2,'0')}:00`)>new Date();
+        const colorFondo=colorZona(real)||colorZona(esperado);
+        let estilo,borde;
+        if(esFuturo){estilo='background:#e5e7eb';borde='';}
+        else if(sinDato){estilo='background:#e5e7eb';borde='';}
+        else if(esperado&&!real){estilo=`background:${colorZona(esperado)}22;border:2px dashed ${colorZona(esperado)}`;borde='';}
+        else if(cumplio){estilo=`background:${colorFondo}`;borde='box-shadow:0 0 0 2px #16a34a inset';}
+        else{estilo=`background:${colorFondo}`;borde='box-shadow:0 0 0 2px #dc2626 inset';}
+        return `<button type="button" class="celda-hora h-6 rounded-md hover:opacity-80" style="${estilo};${borde}" data-fecha="${f}" data-hora="${h}" title="${f} ${String(h).padStart(2,'0')}:00 · Rutina: ${esperado||'Sin definir'}${real?` · Real: ${real}`:''}"></button>`
+      }).join('')}`).join('')}</div></div>`;
+      $('#leyenda-rutina').innerHTML=`${zonas.map(zona=>`<span class="inline-flex items-center gap-1 rounded-xl border px-3 py-2 text-xs font-semibold" style="border-color:${colorZona(zona)}55;background:${colorZona(zona)}18;color:${colorZona(zona)}"><span class="h-2.5 w-2.5 rounded-full" style="background:${colorZona(zona)}"></span>${zona}</span>`).join('')}<span class="inline-flex items-center gap-1 rounded-xl border px-3 py-2 text-xs font-semibold text-on-surface-variant" style="box-shadow:0 0 0 2px #16a34a inset">Cumplió</span><span class="inline-flex items-center gap-1 rounded-xl border px-3 py-2 text-xs font-semibold text-on-surface-variant" style="box-shadow:0 0 0 2px #dc2626 inset">No cumplió</span><span class="inline-flex items-center gap-1 rounded-xl border border-dashed px-3 py-2 text-xs font-semibold text-on-surface-variant">Esperado, sin señal</span><span class="inline-flex items-center gap-1 rounded-xl border px-3 py-2 text-xs font-semibold text-on-surface-variant bg-[#e5e7eb]">Sin rutina definida</span>`;
+      $('#grafico-rutina').querySelectorAll('.celda-hora').forEach(btn=>{
+        btn.addEventListener('click',()=>mostrarDetalleHora(btn.dataset.fecha,Number(btn.dataset.hora)));
+      });
+    }
+    async function mostrarDetalleHora(fecha,hora){
+      $('#titulo-hora').textContent=`${fechaTexto(fecha)} · ${String(hora).padStart(2,'0')}:00 - ${String((hora+1)%24).padStart(2,'0')}:00`;
+      $('#detalle-hora').innerHTML='Cargando...';
+      $('#dialogo-hora').showModal();
+      try{
+        const res=await fetch(`/api/historial-hora/${fecha}/${hora}?t=${Date.now()}`,{cache:'no-store'});
+        const eventos=await res.json();
+        $('#detalle-hora').innerHTML=eventos.length?eventos.map(e=>{const inicio=new Date(e.cambiado_en),fin=new Date(e.fin);return `<div class="flex items-center justify-between rounded-lg bg-surface-container-low px-3 py-2"><span class="flex items-center gap-1 font-semibold"><span class="material-symbols-outlined text-base">${iconos[e.nombre_zona]||'location_on'}</span>${e.nombre_zona}</span><span class="text-xs text-on-surface-variant">${inicio.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})} - ${fin.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})}</span></div>`}).join(''):'<p class="text-on-surface-variant">Sin registros de actividad en esa hora.</p>';
+      }catch(err){console.error(err);$('#detalle-hora').innerHTML='<p class="text-on-surface-variant">No se pudo cargar el detalle.</p>'}
+    }
+    $('#cerrar-hora').addEventListener('click',()=>$('#dialogo-hora').close());
+    $('#modo').addEventListener('change',e=>{modo=e.target.value;desplazamiento=0;cargar().catch(console.error)});
+    $('#anterior').addEventListener('click',()=>{desplazamiento-=1;cargar().catch(console.error)});
+    $('#siguiente').addEventListener('click',()=>{if(desplazamiento<0){desplazamiento+=1;cargar().catch(console.error)}});
+    cargar().catch(err=>{$('#periodo').textContent='No se pudieron cargar los datos';console.error(err)});
+    // Auto-refresco para reflejar nuevas zonas/rutina sin recargar la página manualmente.
+    setInterval(()=>{cargar().catch(console.error)},15000);
+  </script>
+  <script>window.addEventListener('load',()=>document.body.classList.add('ui-ready'));setTimeout(()=>document.body.classList.add('ui-ready'),1500)</script>
+</body>
+</html>

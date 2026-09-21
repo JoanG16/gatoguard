@@ -1,0 +1,27 @@
+{
+  "name": "gatos-poc-consumer",
+  "version": "1.0.0",
+  "description": "Consumidor MQTT -> Postgres para la prueba de concepto de detección de zona",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "init-db": "node db_init.js",
+    "detect-zone": "node zone_detector.js",
+    "dashboard": "node server.js",
+    "dashboard:watch": "nodemon server.js",
+    "learn-routine": "node routine_learning_job.js",
+    "simulate-week": "node simulate_week.js",
+    "simulate-anomaly": "node simulate_anomaly.js",
+    "schedule-anomaly": "node schedule_anomaly.js",
+    "detect-anomalies": "node anomaly_detector.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "mqtt": "^5.10.1",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

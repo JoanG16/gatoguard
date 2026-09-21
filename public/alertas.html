@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GatoGuard - Alertas</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined&family=Lexend:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>body { visibility: hidden; font-family: Arial, sans-serif; } body.ui-ready { visibility: visible; }</style>
+  <script>tailwind.config={theme:{extend:{colors:{surface:"#f3fbfd","primary":"#8f4e00","primary-container":"#ff9f43","on-surface":"#151d1f","on-surface-variant":"#544437","surface-container-lowest":"#ffffff","surface-container-low":"#edf5f7","surface-variant":"#dce4e6","error":"#ba1a1a","error-container":"#ffdad6","on-error-container":"#93000a"},fontFamily:{headline:["Lexend"],body:["Quicksand"]}}}}</script>
+</head>
+<body class="bg-surface text-on-surface font-body min-h-screen pb-24">
+  <header class="fixed top-0 z-50 w-full bg-surface shadow-sm px-5 py-4 flex justify-between items-center">
+    <a href="index.html" class="text-primary"><span class="material-symbols-outlined">arrow_back</span></a>
+    <h1 class="font-headline font-bold text-xl text-primary">Alertas</h1><span class="w-6"></span>
+  </header>
+  <main class="pt-24 px-5 max-w-3xl mx-auto">
+    <div class="mb-6"><h2 class="font-headline text-3xl font-semibold">Qué está pasando</h2><p class="text-on-surface-variant mt-1">Señales detectadas por las capas de análisis.</p></div>
+    <div class="rounded-xl bg-surface-container-low p-4 mb-4 space-y-3">
+      <div class="flex flex-wrap gap-2">
+        <input id="desde" type="date" class="bg-surface-container-low px-3 py-2 rounded-xl shadow-sm text-on-surface font-body border-0 focus:ring-2 focus:ring-primary" aria-label="Desde">
+        <input id="hasta" type="date" class="bg-surface-container-low px-3 py-2 rounded-xl shadow-sm text-on-surface font-body border-0 focus:ring-2 focus:ring-primary" aria-label="Hasta">
+        <select id="estado" class="bg-surface-container-low px-4 py-2 rounded-xl shadow-sm text-on-surface font-body border-0 focus:ring-2 focus:ring-primary"><option value="">Todas</option><option value="false">No revisadas</option><option value="true">Revisadas</option></select>
+        <button id="filtrar" class="bg-primary text-white px-4 py-2 rounded-xl shadow-sm">Filtrar</button>
+        <a href="alertas-archivadas.html" class="bg-surface-container-low px-4 py-2 rounded-xl shadow-sm">Archivadas</a>
+      </div>
+      <div id="resumen">Cargando alertas...</div>
+    </div>
+    <section id="lista" class="space-y-3"></section>
+  </main>
+  <dialog id="confirmar-borrado" class="rounded-xl p-0 shadow-xl backdrop:bg-black/40">
+    <form method="dialog" class="p-6 space-y-4 max-w-sm">
+      <h2 class="text-xl font-semibold">Borrar alerta</h2>
+      <p>Esta acción no se puede deshacer.</p>
+      <label class="flex gap-2 items-start"><input id="confirmacion-borrado" type="checkbox" class="mt-1"> Estoy segura de que quiero borrar esta alerta.</label>
+      <div class="flex justify-end gap-2"><button value="cancel" class="rounded-lg border px-4 py-2">Cancelar</button><button id="aceptar-borrado" value="default" disabled class="rounded-lg bg-error px-4 py-2 text-white disabled:opacity-40">Aceptar</button></div>
+    </form>
+  </dialog>
+  <dialog id="dialogo-comentario" class="rounded-xl p-0 shadow-xl backdrop:bg-black/40">
+    <form id="formulario-comentario" method="dialog" class="p-6 space-y-4 w-[min(90vw,28rem)]">
+      <h2 class="text-xl font-semibold">Añadir comentario</h2>
+      <textarea id="texto-comentario" rows="4" maxlength="500" required placeholder="Escribe una nota sobre esta alerta..." class="w-full rounded-lg border border-surface-variant bg-white p-3"></textarea>
+      <div class="flex justify-end gap-2">
+        <button type="button" id="cancelar-comentario" class="rounded-lg border px-4 py-2">Cancelar</button>
+        <button type="submit" class="rounded-lg bg-primary px-4 py-2 text-white">Guardar comentario</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="dialogo-detalle" class="rounded-xl p-0 shadow-xl backdrop:bg-black/40">
+    <div id="contenido-detalle" class="p-6 w-[min(90vw,34rem)]"></div>
+  </dialog>
+  <nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-2 bg-surface shadow-[0px_-4px_20px_rgba(0,0,0,0.05)] rounded-t-xl md:hidden">
+    <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="index.html"><span class="material-symbols-outlined mb-1 text-[24px]">home</span><span class="text-xs">Home</span></a>
+    <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="estadisticas.html"><span class="material-symbols-outlined mb-1 text-[24px]">analytics</span><span class="text-xs">Estadísticas</span></a><a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1 scale-90 transition-all" href="calendario.html"><span class="material-symbols-outlined mb-1 text-[24px]" style="font-variation-settings: 'FILL' 1;">calendar_month</span><span class="text-xs">Agenda</span></a><a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="dispositivos.html"><span class="material-symbols-outlined mb-1 text-[24px]">wifi_tethering</span><span class="text-xs">Dispositivos</span></a><a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="perfil.html"><span class="material-symbols-outlined mb-1 text-[24px]">pets</span><span class="text-xs">Perfil</span></a>
+  </nav>
+  <script>
+    const lista = document.querySelector('#lista');
+    const resumen = document.querySelector('#resumen');
+    const desde = document.querySelector('#desde');
+    const hasta = document.querySelector('#hasta');
+    const estado = document.querySelector('#estado');
+    const modalBorrado = document.querySelector('#confirmar-borrado');
+    const checkBorrado = document.querySelector('#confirmacion-borrado');
+    const aceptarBorrado = document.querySelector('#aceptar-borrado');
+    const dialogoComentario = document.querySelector('#dialogo-comentario');
+    const formularioComentario = document.querySelector('#formulario-comentario');
+    const textoComentario = document.querySelector('#texto-comentario');
+    const tituloComentario = formularioComentario.querySelector('h2');
+    const dialogoDetalle = document.querySelector('#dialogo-detalle');
+    const contenidoDetalle = document.querySelector('#contenido-detalle');
+    let alertaParaComentar = null;
+    let alertaSeleccionada = null;
+    let alertasActuales = [];
+    function fecha(valor) { return new Date(valor).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' }); }
+    function duracion(segundos) {
+      const minutos = Math.max(0, Number(segundos || 0) / 60);
+      if (minutos < 1) return 'menos de 1 minuto';
+      if (minutos < 60) return `${Math.round(minutos)} minutos`;
+      return `${Math.floor(minutos / 60)} h ${Math.round(minutos % 60)} min`;
+    }
+    function descripcionVisible(alerta) {
+      if (!alerta.resuelta_en && alerta.ubicacion_actual !== false) return alerta.descripcion;
+      return alerta.descripcion
+        .replace('Michi está en', 'Michi estuvo en')
+        .replace(/Lleva allí ([^.]+)\./, 'Estuvo allí durante $1.');
+    }
+    function nivel(alerta) {
+      if (alerta.capa === 1) return 'Señal perdida';
+      if (alerta.capa === 2) return 'Cambio estadístico';
+      return 'Patrón inusual confirmado';
+    }
+    function tarjeta(alerta) {
+      const activa = !alerta.resuelta_en && alerta.ubicacion_actual !== false;
+      const revisada = Boolean(alerta.revisada_en);
+      const estado = 'Alerta';
+      const detalleEstado = activa
+        ? 'Actualmente está allí.'
+        : `Terminó el ${fecha(alerta.resuelta_en)}.`;
+      return `<article data-alerta-id="${alerta.id}" class="relative cursor-pointer rounded-xl border ${revisada ? 'border-surface-variant bg-white' : 'border-error/30 bg-error-container'} p-4 transition-shadow hover:shadow-md">
+        <div class="flex gap-3"><span class="material-symbols-outlined ${activa ? 'text-error' : 'text-on-surface-variant'}">${activa ? 'warning' : 'check_circle'}</span>
+        <div class="flex-1"><div class="flex justify-between gap-2"><h3 class="font-semibold">${estado} ${revisada ? '<span class="text-sm text-secondary">· Revisada</span>' : ''}</h3><span class="text-sm">${nivel(alerta)}</span></div>
+        <p class="mt-1">${descripcionVisible(alerta)}</p><p class="text-sm text-on-surface-variant mt-2">${detalleEstado}</p><p class="text-sm text-on-surface-variant mt-1">Detectada: ${fecha(alerta.detectada_en)}${revisada ? ` · Revisada: ${fecha(alerta.revisada_en)}` : ''}</p>${alerta.comentario ? `<p class="mt-2 text-sm bg-white/70 rounded-lg p-2">Nota: ${alerta.comentario}</p>` : ''}
+        <div class="h-10"></div></div></div><div class="absolute bottom-3 right-3 flex gap-2">${revisada ? '' : `<button data-action="revisar" data-id="${alerta.id}" title="Marcar como revisada" aria-label="Marcar como revisada" class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-surface-variant bg-white text-secondary shadow-sm hover:bg-surface-container-low"><span class="material-symbols-outlined text-base">done</span></button>`}<button data-action="comentar" data-id="${alerta.id}" title="Añadir o editar comentario" aria-label="Añadir o editar comentario" class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-surface-variant bg-white shadow-sm hover:bg-surface-container-low"><span class="material-symbols-outlined text-base">comment</span></button><button data-action="archivar" data-id="${alerta.id}" title="Archivar alerta" aria-label="Archivar alerta" class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-surface-variant bg-white shadow-sm hover:bg-surface-container-low"><span class="material-symbols-outlined text-base">archive</span></button><button data-action="borrar" data-id="${alerta.id}" title="Borrar alerta" aria-label="Borrar alerta" class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-error bg-white text-error shadow-sm hover:bg-surface-container-low"><span class="material-symbols-outlined text-base">delete</span></button></div></article>`;
+    }
+    async function cargar() {
+      try {
+        const params = new URLSearchParams({ ...(desde.value && { desde: desde.value }), ...(hasta.value && { hasta: hasta.value }), ...(estado.value && { revisada: estado.value }) });
+        const res = await fetch('/api/anomalias?' + params.toString()); if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const alertas = await res.json(); alertasActuales = alertas; const activas = alertas.filter(a => !a.resuelta_en && a.ubicacion_actual !== false);
+        const recientes = alertas.filter(a => Date.now() - new Date(a.detectada_en).getTime() < 24 * 60 * 60 * 1000);
+        resumen.textContent = activas.length
+          ? `${activas.length} alerta${activas.length === 1 ? '' : 's'} activa${activas.length === 1 ? '' : 's'}.`
+          : recientes.length
+            ? 'No hay alertas activas ahora, pero sí hubo una anomalía reciente. Revisa el historial.'
+            : 'No hay alertas activas. La rutina de Michi parece normal.';
+        lista.innerHTML = alertas.length ? alertas.map(tarjeta).join('') : '<p class="text-on-surface-variant">Todavía no hay alertas registradas.</p>';
+      } catch (err) { resumen.textContent = 'No se pudieron cargar las alertas.'; console.error(err); }
+    }
+    document.querySelector('#filtrar').onclick = cargar;
+    function abrirDetalle(alerta) {
+      alertaSeleccionada = alerta;
+      const revisada = Boolean(alerta.revisada_en);
+      const activa = !alerta.resuelta_en && alerta.ubicacion_actual !== false;
+      contenidoDetalle.innerHTML = `<div class="flex items-start justify-between gap-3"><div><p class="text-sm text-on-surface-variant">${nivel(alerta)}</p><h2 class="text-2xl font-semibold">Detalle de la alerta</h2></div><button type="button" data-detail-action="cerrar" class="rounded-full p-1 hover:bg-surface-container-low"><span class="material-symbols-outlined">close</span></button></div>
+        <div class="mt-5 space-y-3"><p>${descripcionVisible(alerta)}</p><p class="text-sm text-on-surface-variant">${activa ? 'Actualmente está allí.' : `Terminó el ${fecha(alerta.resuelta_en || alerta.detectada_en)}.`}</p><p class="text-sm text-on-surface-variant">Detectada: ${fecha(alerta.detectada_en)}${revisada ? ` · Revisada: ${fecha(alerta.revisada_en)}` : ''}</p>
+        <div class="rounded-lg bg-surface-container-low p-3"><p class="text-sm font-semibold">Nota</p>${alerta.comentario ? `<p class="mt-1">${alerta.comentario}</p><div class="mt-3 flex gap-2"><button type="button" data-detail-action="editar-nota" class="rounded-lg border bg-white px-3 py-2 text-sm">Editar</button><button type="button" data-detail-action="eliminar-nota" class="rounded-lg border border-error bg-white px-3 py-2 text-sm text-error">Eliminar</button></div>` : '<p class="mt-1 text-sm text-on-surface-variant">No hay notas para esta alerta.</p>'}</div></div>
+        <div class="mt-5 flex justify-end"><button type="button" data-detail-action="cerrar" class="rounded-lg border px-4 py-2">Cerrar</button></div>`;
+      dialogoDetalle.showModal();
+    }
+    lista.addEventListener('click', async event => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) {
+        const card = event.target.closest('[data-alerta-id]');
+        if (card) abrirDetalle(alertasActuales.find(alerta => String(alerta.id) === card.dataset.alertaId));
+        return;
+      }
+      if (button.dataset.action === 'borrar') {
+        checkBorrado.checked = false;
+        aceptarBorrado.disabled = true;
+        aceptarBorrado.dataset.id = button.dataset.id;
+        modalBorrado.showModal();
+        return;
+      }
+      const accion = button.dataset.action;
+      if (accion === 'comentar') {
+        alertaParaComentar = button.dataset.id;
+        const alerta = alertasActuales.find(item => String(item.id) === alertaParaComentar);
+        tituloComentario.textContent = alerta?.comentario ? 'Editar nota' : 'Añadir comentario';
+        textoComentario.value = alerta?.comentario || '';
+        dialogoComentario.showModal();
+        textoComentario.focus();
+        return;
+      }
+      const body = { accion };
+      const res = accion === 'borrar'
+        ? await fetch(`/api/anomalias/${button.dataset.id}`, { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ confirmar: true }) })
+        : await fetch(`/api/anomalias/${button.dataset.id}`, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      if (!res.ok) alert('No se pudo actualizar la alerta.');
+      await cargar();
+    });
+    contenidoDetalle.addEventListener('click', async event => {
+      const button = event.target.closest('button[data-detail-action]');
+      if (!button) return;
+      const accion = button.dataset.detailAction;
+      if (accion === 'cerrar') {
+        dialogoDetalle.close();
+        return;
+      }
+      if (!alertaSeleccionada) return;
+      if (accion === 'editar-nota') {
+        alertaParaComentar = String(alertaSeleccionada.id);
+        tituloComentario.textContent = 'Editar nota';
+        textoComentario.value = alertaSeleccionada.comentario || '';
+        dialogoComentario.showModal();
+        textoComentario.focus();
+        return;
+      }
+      if (accion === 'eliminar-nota') {
+        const res = await fetch(`/api/anomalias/${alertaSeleccionada.id}`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ accion: 'comentar', comentario: '' })
+        });
+        if (!res.ok) {
+          alert('No se pudo eliminar la nota.');
+          return;
+        }
+        dialogoDetalle.close();
+        await cargar();
+      }
+    });
+    document.querySelector('#cancelar-comentario').addEventListener('click', () => dialogoComentario.close());
+    formularioComentario.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!alertaParaComentar || !textoComentario.value.trim()) return;
+      const res = await fetch(`/api/anomalias/${alertaParaComentar}`, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ accion: 'comentar', comentario: textoComentario.value.trim() })
+      });
+      if (!res.ok) {
+        alert('No se pudo guardar el comentario.');
+        return;
+      }
+      dialogoComentario.close();
+      if (alertaSeleccionada && String(alertaSeleccionada.id) === alertaParaComentar) {
+        alertaSeleccionada.comentario = textoComentario.value.trim();
+        abrirDetalle(alertaSeleccionada);
+      }
+      alertaParaComentar = null;
+      await cargar();
+    });
+    checkBorrado.addEventListener('change', () => { aceptarBorrado.disabled = !checkBorrado.checked; });
+    aceptarBorrado.addEventListener('click', async event => {
+      event.preventDefault();
+      if (!checkBorrado.checked) return;
+      const res = await fetch(`/api/anomalias/${aceptarBorrado.dataset.id}`, { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ confirmar: true }) });
+      modalBorrado.close();
+      if (!res.ok) alert('No se pudo borrar la alerta.');
+      await cargar();
+    });
+    cargar(); setInterval(cargar, 30000);
+  </script>
+  <script>window.addEventListener('load', () => document.body.classList.add('ui-ready')); setTimeout(() => document.body.classList.add('ui-ready'), 1500);</script>
+</body>
+</html>

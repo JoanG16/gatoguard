@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>GatoGuard - Historial de Movimientos</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&amp;family=Quicksand:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+    tailwind.config = {
+        darkMode: "class",
+        theme: {
+            extend: {
+                colors: {
+                    "on-primary": "#ffffff", "on-primary-fixed": "#2e1500", "outline-variant": "#dac2b1",
+                    "primary-fixed": "#ffdcc2", "on-tertiary-fixed-variant": "#004b6f", "surface": "#f3fbfd",
+                    "on-tertiary-fixed": "#001e2f", "on-secondary-fixed": "#00201a", "surface-container-lowest": "#ffffff",
+                    "on-secondary-container": "#007261", "tertiary-fixed": "#c9e6ff", "tertiary-fixed-dim": "#8aceff",
+                    "surface-tint": "#8f4e00", "surface-variant": "#dce4e6", "inverse-on-surface": "#eaf2f4",
+                    "secondary": "#006b5b", "surface-container-low": "#edf5f7", "background": "#f3fbfd",
+                    "outline": "#877365", "inverse-primary": "#ffb77a", "tertiary": "#006491", "primary": "#8f4e00",
+                    "surface-container": "#e7eff1", "on-tertiary-container": "#004c6f", "on-surface-variant": "#544437",
+                    "tertiary-container": "#6fbef4", "secondary-fixed": "#7cf8dd", "secondary-fixed-dim": "#5ddbc1",
+                    "surface-container-highest": "#dce4e6", "on-tertiary": "#ffffff", "on-surface": "#151d1f",
+                    "primary-container": "#ff9f43", "surface-container-high": "#e2eaec", "inverse-surface": "#2a3234",
+                    "error": "#ba1a1a", "on-primary-fixed-variant": "#6d3a00", "on-error-container": "#93000a",
+                    "on-primary-container": "#6d3a00", "on-error": "#ffffff", "on-secondary": "#ffffff",
+                    "on-secondary-fixed-variant": "#005144", "surface-bright": "#f3fbfd", "primary-fixed-dim": "#ffb77a",
+                    "secondary-container": "#7cf8dd", "error-container": "#ffdad6", "on-background": "#151d1f",
+                    "surface-dim": "#d3dbdd"
+                },
+                borderRadius: { DEFAULT: "0.25rem", lg: "0.5rem", xl: "0.75rem", full: "9999px" },
+                spacing: { md: "16px", sm: "8px", lg: "24px", unit: "4px", gutter: "16px", xs: "4px", margin: "20px", xl: "32px" },
+                fontFamily: {
+                    "headline-lg-mobile": ["Lexend"], "headline-md": ["Lexend"], "body-lg": ["Quicksand"],
+                    "body-md": ["Quicksand"], "label-md": ["Lexend"], "headline-sm": ["Lexend"],
+                    "body-sm": ["Quicksand"], "headline-lg": ["Lexend"], "label-lg": ["Lexend"]
+                },
+                fontSize: {
+                    "headline-lg-mobile": ["28px", { lineHeight: "36px", fontWeight: "600" }],
+                    "headline-md": ["24px", { lineHeight: "32px", fontWeight: "600" }],
+                    "body-lg": ["18px", { lineHeight: "26px", fontWeight: "500" }],
+                    "body-md": ["16px", { lineHeight: "24px", fontWeight: "500" }],
+                    "label-md": ["12px", { lineHeight: "16px", fontWeight: "500" }],
+                    "headline-sm": ["20px", { lineHeight: "28px", fontWeight: "500" }],
+                    "body-sm": ["14px", { lineHeight: "20px", fontWeight: "400" }],
+                    "headline-lg": ["32px", { lineHeight: "40px", letterSpacing: "-0.02em", fontWeight: "600" }],
+                    "label-lg": ["14px", { lineHeight: "20px", letterSpacing: "0.05em", fontWeight: "600" }]
+                }
+            }
+        }
+    }
+</script>
+<style>
+    body { visibility: hidden; font-family: Arial, sans-serif; }
+    body.ui-ready { visibility: visible; }
+    .timeline-line { position: absolute; left: 20px; top: 24px; bottom: 0; width: 2px; background-color: #dce4e6; z-index: 0; }
+</style>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen pb-24">
+
+<header class="bg-surface shadow-[0px_4px_20px_rgba(0,0,0,0.05)] fixed top-0 z-50 w-full">
+  <div class="flex justify-between items-center w-full px-margin py-md">
+    <div class="w-8 h-8 rounded-full bg-primary-container/40 flex items-center justify-center">
+      <span class="material-symbols-outlined text-primary text-lg">pets</span>
+    </div>
+    <span class="text-headline-md font-headline-md font-bold text-primary">Gato</span>
+    <div class="w-8"></div>
+  </div>
+</header>
+
+<main class="pt-[80px] px-margin md:max-w-3xl md:mx-auto">
+
+  <section class="py-lg flex items-center justify-between">
+    <h1 class="text-headline-lg-mobile font-headline-lg-mobile text-on-surface">Historial</h1>
+    <div class="flex items-center gap-2">
+    <select id="filtro-fecha" class="bg-surface-container-low px-4 py-2 rounded-xl shadow-sm text-on-surface font-body border-0 focus:ring-2 focus:ring-primary">
+      <option value="hoy">Hoy</option>
+      <option value="ayer">Ayer</option>
+      <option value="todos">Todos</option>
+    </select>
+    <input id="fecha-especifica" type="date" class="bg-surface-container-low px-3 py-2 rounded-xl shadow-sm text-on-surface font-body border-0 focus:ring-2 focus:ring-primary" aria-label="Elegir fecha">
+    </div>
+  </section>
+
+  <section class="relative mt-md pb-xl">
+    <div class="timeline-line hidden md:block"></div>
+    <div class="flex flex-col gap-lg" id="timeline-container">
+      <p class="text-on-surface-variant font-body-md">Cargando…</p>
+    </div>
+  </section>
+
+</main>
+
+<nav class="md:hidden bg-surface shadow-[0px_-4px_20px_rgba(0,0,0,0.05)] fixed bottom-0 left-0 w-full z-50 rounded-t-xl flex justify-around items-center px-4 py-2">
+  <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="index.html">
+    <span class="material-symbols-outlined mb-1 text-[24px]">home</span>
+    <span class="text-label-md font-label-md">Home</span>
+  </a>
+  <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="estadisticas.html"><span class="material-symbols-outlined mb-1 text-[24px]">analytics</span><span class="text-xs">Estadísticas</span></a>
+  <a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1 scale-90 transition-all duration-150" href="calendario.html"><span class="material-symbols-outlined mb-1 text-[24px]" style="font-variation-settings: 'FILL' 1;">calendar_month</span><span class="text-xs">Agenda</span></a>
+  <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="dispositivos.html">
+    <span class="material-symbols-outlined mb-1 text-[24px]">wifi_tethering</span>
+    <span class="text-label-md font-label-md">Dispositivos</span>
+  </a>
+  <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="perfil.html">
+    <span class="material-symbols-outlined mb-1 text-[24px]">pets</span>
+    <span class="text-label-md font-label-md">Perfil</span>
+  </a>
+</nav>
+
+<script>
+const $ = (sel) => document.querySelector(sel);
+let eventosCache = [];
+
+function iconoZona(nombre) {
+  const n = (nombre || '').toLowerCase();
+  if (n.includes('comedor') || n.includes('cocina')) return 'restaurant';
+  if (n.includes('arenero') || n.includes('baño')) return 'cleaning_services';
+  if (n.includes('cama') || n.includes('dormitorio')) return 'bed';
+  if (n.includes('escritorio') || n.includes('oficina')) return 'chair';
+  if (n.includes('sala') || n.includes('living')) return 'weekend';
+  return 'location_on';
+}
+
+function horaCorta(fechaISO) {
+  return new Date(fechaISO).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+}
+
+function duracionEntre(msInicio, msFin) {
+  const min = Math.round((msFin - msInicio) / 60000);
+  if (min < 1) return 'menos de 1 min';
+  if (min < 60) return `${min} min`;
+  const horas = Math.floor(min / 60);
+  return `${horas}h ${min % 60}min`;
+}
+
+function esMismoDiaQue(fechaISO, referencia) {
+  return fechaLocalClave(fechaISO) === fechaLocalClave(referencia);
+}
+
+function fechaLocalClave(valor) {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(valor instanceof Date ? valor : new Date(valor));
+  const obtener = tipo => partes.find(parte => parte.type === tipo).value;
+  return `${obtener('year')}-${obtener('month')}-${obtener('day')}`;
+}
+
+function finDelDia(fechaISO) {
+  const fecha = new Date(fechaISO);
+  fecha.setHours(23, 59, 59, 999);
+  return fecha.getTime();
+}
+
+function renderTimeline() {
+  const filtro = $('#filtro-fecha').value;
+  const fechaElegida = $('#fecha-especifica').value;
+  const cont = $('#timeline-container');
+
+  let eventos = eventosCache;
+  if (fechaElegida) {
+    eventos = eventos.filter(e => fechaLocalClave(e.cambiado_en) === fechaElegida);
+  } else if (filtro === 'hoy') {
+    eventos = eventos.filter(e => esMismoDiaQue(e.cambiado_en, new Date()));
+  } else if (filtro === 'ayer') {
+    const ayer = new Date();
+    ayer.setDate(ayer.getDate() - 1);
+    eventos = eventos.filter(e => esMismoDiaQue(e.cambiado_en, ayer));
+  }
+
+  const segmentoVigenteDeAyer = filtro === 'hoy' && !fechaElegida && eventos.length === 0 && eventosCache.length > 0;
+  if (segmentoVigenteDeAyer) {
+    eventos = [eventosCache[0]];
+  }
+
+  if (eventos.length === 0) {
+    cont.innerHTML = '<p class="text-on-surface-variant font-body-md">No hay movimientos registrados en este rango.</p>';
+    return;
+  }
+
+  // eventosCache viene ordenado del más reciente al más viejo (igual que /api/historial).
+  cont.innerHTML = eventos.map((e, i) => {
+    const inicio = new Date(e.cambiado_en).getTime();
+    const siguiente = eventosCache
+      .map(evento => new Date(evento.cambiado_en).getTime())
+      .filter(momento => momento > inicio)
+      .sort((a, b) => a - b)[0];
+    const esHoy = esMismoDiaQue(e.cambiado_en, new Date());
+    const esActual = !fechaElegida && filtro === 'hoy' && i === 0 && (esHoy || segmentoVigenteDeAyer);
+    const finSegmento = esActual
+      ? Date.now()
+      : Math.min(siguiente || finDelDia(e.cambiado_en), finDelDia(e.cambiado_en));
+    const duracion = duracionEntre(new Date(e.cambiado_en).getTime(), finSegmento);
+
+    return `
+      <article class="relative flex gap-md items-start">
+        <div class="z-10 flex-shrink-0 mt-1">
+          <div class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center border-4 border-surface shadow-sm ${esActual ? 'text-primary' : 'text-secondary'}">
+            <span class="material-symbols-outlined">${iconoZona(e.nombre_zona)}</span>
+          </div>
+        </div>
+        <div class="flex-grow bg-surface-container-lowest rounded-xl p-md shadow-[0px_4px_20px_rgba(0,0,0,0.05)] border border-surface-variant flex flex-col gap-unit">
+          <span class="text-label-lg font-label-lg text-on-surface-variant">${horaCorta(e.cambiado_en)}${esActual ? ' · en curso' : ''}</span>
+          <h3 class="text-headline-sm font-headline-sm text-on-surface">${e.nombre_zona}</h3>
+          <span class="inline-block px-3 py-1 bg-surface-container-low text-on-surface font-label-md rounded-full w-max mt-unit">${duracion}</span>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+async function cargarHistorial() {
+  try {
+    const res = await fetch('/api/historial?limit=200', { cache: 'no-store' });
+    eventosCache = await res.json();
+    renderTimeline();
+  } catch (err) {
+    console.error('Error /api/historial', err);
+    $('#timeline-container').innerHTML = '<p class="text-error font-body-md">No se pudo cargar el historial.</p>';
+  }
+}
+
+$('#filtro-fecha').addEventListener('change', renderTimeline);
+$('#fecha-especifica').addEventListener('change', () => {
+  $('#filtro-fecha').value = 'todos';
+  renderTimeline();
+});
+cargarHistorial();
+</script>
+<script>window.addEventListener('load', () => document.body.classList.add('ui-ready')); setTimeout(() => document.body.classList.add('ui-ready'), 1500);</script>
+</body>
+</html>

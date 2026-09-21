@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GatoGuard - Configuración de dispositivos</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&family=Lexend:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            surface: '#f3fbfd',
+            primary: '#8f4e00',
+            secondary: '#006b5b',
+            'primary-container': '#ff9f43',
+            'on-surface': '#151d1f',
+            'on-surface-variant': '#544437',
+            'surface-container-low': '#edf5f7',
+            'surface-container': '#e7eff1',
+            'surface-variant': '#dce4e6',
+            error: '#ba1a1a'
+          },
+          fontFamily: { headline: ['Lexend'], body: ['Quicksand'] }
+        }
+      }
+    };
+  </script>
+  <style>
+    body { visibility: hidden; font-family: Arial, sans-serif; }
+    body.ui-ready { visibility: visible; }
+    .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+  </style>
+</head>
+<body class="min-h-screen bg-surface pb-24 text-on-surface font-body">
+  <header class="fixed top-0 z-40 flex w-full items-center justify-between bg-surface px-5 py-4 shadow-sm">
+    <a href="perfil.html" class="inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary-container/30 text-primary" aria-label="Volver"><span class="material-symbols-outlined">arrow_back</span></a>
+    <h1 class="font-headline text-xl font-bold text-primary">Dispositivos</h1>
+    <span class="w-10"></span>
+  </header>
+
+  <main class="mx-auto max-w-4xl px-5 pt-24">
+    <div class="mb-5 flex rounded-2xl bg-white p-1 shadow-sm">
+      <button type="button" class="tab-btn flex-1 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white" data-tab="gateways">Gateways</button>
+      <button type="button" class="tab-btn flex-1 rounded-xl px-4 py-2 text-sm font-semibold text-on-surface-variant" data-tab="mascotas">Mascotas</button>
+    </div>
+
+    <section id="tab-gateways" class="tab-panel space-y-4">
+      <div class="flex items-center justify-end">
+        <button id="add-gateway" type="button" class="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white">+ Agregar gateway</button>
+      </div>
+      <div id="gateway-list" class="space-y-4">
+
+      </div>
+    </section>
+
+    <section id="tab-mascotas" class="tab-panel hidden space-y-4">
+      <div class="flex items-center justify-end">
+        <button id="add-mascota" type="button" class="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white">+ Agregar mascota</button>
+      </div>
+      <div id="beacon-list" class="space-y-4"></div>
+    </section>
+  </main>
+
+  <nav class="fixed bottom-0 left-0 z-50 flex w-full justify-around rounded-t-xl bg-surface px-2 py-2 shadow-[0px_-4px_20px_rgba(0,0,0,0.05)] md:hidden">
+    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="index.html"><span class="material-symbols-outlined">home</span><span class="text-xs">Home</span></a>
+    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="estadisticas.html"><span class="material-symbols-outlined">analytics</span><span class="text-xs">Estadísticas</span></a>
+    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="calendario.html"><span class="material-symbols-outlined">calendar_month</span><span class="text-xs">Agenda</span></a>
+    <a class="flex flex-col items-center rounded-full bg-primary-container px-3 py-1 text-on-primary-container" href="dispositivos.html"><span class="material-symbols-outlined">wifi_tethering</span><span class="text-xs">Dispositivos</span></a>
+    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="perfil.html"><span class="material-symbols-outlined">pets</span><span class="text-xs">Perfil</span></a>
+  </nav>
+
+  <div id="device-modal" class="fixed inset-0 z-50 hidden items-end justify-center bg-black/25 p-4 md:items-center">
+
+    <div class="w-full max-w-md rounded-2xl bg-white p-5 shadow-lg">
+      <div class="mb-4 flex items-center justify-between">
+        <h2 id="modal-title" class="font-headline text-xl font-semibold text-on-surface">Editar</h2>
+        <button type="button" class="modal-close inline-flex h-9 w-9 items-center justify-center rounded-full bg-surface-container-low text-on-surface-variant" aria-label="Cerrar"><span class="material-symbols-outlined">close</span></button>
+      </div>
+      <form id="device-form" class="space-y-4">
+        <div class="hidden">
+          <input id="device-mode" name="mode" type="hidden" />
+          <input id="device-target" name="target" type="hidden" />
+        </div>
+
+        <div id="form-field-mac" class="hidden">
+          <label class="block text-sm font-medium text-on-surface-variant">MAC del collar
+            <input id="device-mac" name="mac" readonly class="mt-1 w-full rounded-xl border border-surface-variant bg-surface-container-low px-3 py-2 outline-none focus:ring-2 focus:ring-primary/30" placeholder="Escanea el QR del collar para completar" />
+          </label>
+          <button id="scan-beacon-qr" type="button" class="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-primary px-3 py-2 text-sm font-semibold text-primary">
+            <span class="material-symbols-outlined text-lg">qr_code_scanner</span> Escanear código QR del collar
+          </button>
+          <div id="qr-scanner-wrap" class="mt-2 hidden overflow-hidden rounded-xl border border-surface-variant">
+            <video id="qr-scanner-video" class="w-full" muted playsinline></video>
+            <button id="qr-scanner-cancel" type="button" class="w-full bg-surface-container-low px-3 py-2 text-xs font-semibold text-on-surface-variant">Cancelar escaneo</button>
+          </div>
+        </div>
+
+        <div id="form-field-name" class="hidden">
+          <label class="block text-sm font-medium text-on-surface-variant">Nombre
+            <input id="device-name" name="nombre" class="mt-1 w-full rounded-xl border border-surface-variant bg-surface-container-low px-3 py-2 outline-none focus:ring-2 focus:ring-primary/30" placeholder="Michi" />
+          </label>
+        </div>
+
+        <input id="gateway-device-id" name="device_id" type="hidden" />
+        <input id="gateway-client-id" name="cliente_id" type="hidden" />
+
+        <div id="gateway-config-fields" class="space-y-4 hidden">
+          <div class="rounded-xl border border-dashed border-primary/40 bg-primary/5 p-3">
+            <p class="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-primary">Configuración del gateway</p>
+            <div class="flex gap-2">
+              <button id="connect-gateway-ap" type="button" class="flex-1 rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-white">Conectar a M5Stack</button>
+              <button id="scan-gateway-networks" type="button" class="flex-1 rounded-xl border border-primary bg-white px-3 py-2 text-sm font-semibold text-primary">Escanear redes</button>
+            </div>
+            <div class="mt-3">
+              <label class="block text-xs font-medium uppercase tracking-[0.12em] text-on-surface-variant">Red detectada</label>
+              <select id="gateway-network-list" class="mt-1 w-full rounded-xl border border-surface-variant bg-surface-container-low px-3 py-2 text-sm text-on-surface outline-none focus:ring-2 focus:ring-primary/30">
+                <option value="">Selecciona una red...</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-on-surface-variant">Red Wi‑Fi
+              <input id="gateway-wifi-ssid" name="wifi_ssid" class="mt-1 w-full rounded-xl border border-surface-variant bg-surface-container-low px-3 py-2 outline-none focus:ring-2 focus:ring-primary/30" placeholder="IRBIS CONTROL" />
+            </label>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-on-surface-variant">Contraseña Wi‑Fi
+              <input id="gateway-wifi-pass" name="wifi_password" type="password" class="mt-1 w-full rounded-xl border border-surface-variant bg-surface-container-low px-3 py-2 outline-none focus:ring-2 focus:ring-primary/30" placeholder="••••••••" />
+            </label>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-on-surface-variant">Nombre de zona
+            <input id="gateway-zone" name="nombre_zona" class="mt-1 w-full rounded-xl border border-surface-variant bg-surface-container-low px-3 py-2 outline-none focus:ring-2 focus:ring-primary/30" placeholder="Dormitorio" />
+          </label>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-on-surface-variant">Ícono</label>
+          <div id="icon-grid" class="mt-2 grid grid-cols-4 gap-2"></div>
+          <input id="selected-icon" name="icono" type="hidden" value="location_on" />
+        </div>
+
+        <button type="submit" class="w-full rounded-xl bg-primary px-4 py-2 font-semibold text-white">Guardar</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const iconOptions = ['location_on', 'kitchen', 'restaurant', 'cleaning_services', 'bed', 'chair', 'weekend', 'pets'];
+    const state = { activeTab: 'gateways', formMode: 'gateway-edit', gatewayList: [], beaconList: [] };
+    const $ = (selector) => document.querySelector(selector);
+
+    function setActiveTab(tab) {
+      state.activeTab = tab;
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        const active = btn.dataset.tab === tab;
+        btn.classList.toggle('bg-primary', active);
+        btn.classList.toggle('text-white', active);
+        btn.classList.toggle('text-on-surface-variant', !active);
+      });
+      document.querySelectorAll('.tab-panel').forEach(panel => {
+        panel.classList.toggle('hidden', panel.id !== `tab-${tab}`);
+      });
+    }
+
+
+
+    function renderIcons() {
+      const grid = $('#icon-grid');
+      grid.innerHTML = iconOptions.map(icon => `
+        <button type="button" class="icon-option flex h-12 items-center justify-center rounded-xl border border-surface-variant bg-surface-container-low text-on-surface-variant transition hover:border-primary" data-icon="${icon}" aria-label="${icon}">
+          <span class="material-symbols-outlined">${icon}</span>
+        </button>
+      `).join('');
+
+      grid.querySelectorAll('.icon-option').forEach(button => {
+        button.addEventListener('click', () => {
+          const icon = button.dataset.icon;
+          $('#selected-icon').value = icon;
+          grid.querySelectorAll('.icon-option').forEach(el => el.classList.remove('border-primary', 'bg-primary/10', 'text-primary'));
+          button.classList.add('border-primary', 'bg-primary/10', 'text-primary');
+        });
+      });
+      const defaultIcon = $('#selected-icon').value || 'location_on';
+      const defaultButton = grid.querySelector(`[data-icon="${defaultIcon}"]`);
+      if (defaultButton) defaultButton.classList.add('border-primary', 'bg-primary/10', 'text-primary');
+    }
+
+    function openModal({ title, mode, target = '', mac = '', name = '', icon = 'location_on', zone = '', deviceId = '', clienteId = 'cliente-demo', wifiSsid = '', wifiPassword = '', mqttHost = 'broker.hivemq.com', mqttPort = 1883, mqttUser = '', mqttPassword = '' }) {
+      $('#modal-title').textContent = title;
+      $('#device-mode').value = mode;
+      $('#device-target').value = target;
+      $('#device-mac').value = mac;
+      $('#device-name').value = name;
+      $('#gateway-zone').value = zone;
+      $('#gateway-device-id').value = deviceId || target || 'GW-' + Math.random().toString(16).slice(2, 10).toUpperCase();
+      $('#gateway-client-id').value = clienteId || 'cliente-demo';
+      if (mode === 'gateway-edit') {
+      $('#gateway-wifi-ssid').value = '';
+      $('#gateway-wifi-pass').value = '';
+    } else {
+      $('#gateway-wifi-ssid').value = wifiSsid;
+      $('#gateway-wifi-pass').value = wifiPassword;
+    }
+      $('#selected-icon').value = icon;
+
+      const macField = $('#form-field-mac');
+      const nameField = $('#form-field-name');
+      const gatewayFields = $('#gateway-config-fields');
+      const macInput = $('#device-mac');
+
+      const isGateway = mode === 'gateway-create' || mode === 'gateway-edit';
+      const isBeacon = mode === 'beacon-create' || mode === 'beacon-edit';
+
+      if (isBeacon) {
+        macField.classList.remove('hidden');
+        nameField.classList.remove('hidden');
+        gatewayFields.classList.add('hidden');
+        $('#device-name').placeholder = 'Michi';
+        const scanButton = $('#scan-beacon-qr');
+        // La MAC siempre es de solo lectura: solo se completa escaneando el QR del collar.
+        // Al editar una mascota ya existente tampoco se debe reasignar su MAC.
+        macInput.readOnly = true;
+        macInput.classList.add('bg-surface-container');
+        if (mode === 'beacon-edit') {
+          scanButton.classList.add('hidden');
+        } else {
+          scanButton.classList.remove('hidden');
+        }
+      } else {
+        macField.classList.add('hidden');
+        nameField.classList.add('hidden');
+      }
+
+      if (isGateway) {
+        gatewayFields.classList.remove('hidden');
+        $('#gateway-zone').closest('div').style.display = 'block';
+        $('#device-name').value = name;
+      } else {
+        gatewayFields.classList.add('hidden');
+        $('#gateway-zone').closest('div').style.display = 'none';
+      }
+
+      if (mode === 'gateway-create' || mode === 'gateway-edit') {
+        $('#gateway-zone').parentElement.parentElement.style.display = 'block';
+      }
+
+      if (isBeacon) {
+        $('#gateway-zone').closest('div').style.display = 'none';
+        $('#device-name').name = 'nombre_mascota';
+      } else {
+        $('#device-name').name = 'nombre';
+      }
+
+      renderIcons();
+      const selected = $('#selected-icon').value || 'location_on';
+      const iconButton = document.querySelector(`[data-icon="${selected}"]`);
+      if (iconButton) iconButton.classList.add('border-primary', 'bg-primary/10', 'text-primary');
+
+      $('#device-modal').classList.remove('hidden');
+      $('#device-modal').classList.add('flex');
+    }
+
+    function closeModal() {
+      $('#device-modal').classList.add('hidden');
+      $('#device-modal').classList.remove('flex');
+      $('#device-form').reset();
+      if (typeof detenerEscaneoQR === 'function') detenerEscaneoQR();
+    }
+
+    function gatewayStatus(gateway) {
+      const online = Boolean(gateway.online);
+      return `
+        <div class="flex items-center gap-2">
+          <span class="inline-block h-2.5 w-2.5 rounded-full ${online ? 'bg-emerald-500' : 'bg-red-500'}"></span>
+          <span class="text-sm font-medium ${online ? 'text-emerald-600' : 'text-red-600'}">${online ? 'En línea' : 'Sin conexión'}</span>
+        </div>
+      `;
+    }
+
+   function renderGateways(items) {
+      const list = $('#gateway-list');
+      if (!items.length) {
+        list.innerHTML = `
+          <div class="rounded-2xl border border-dashed border-surface-variant bg-white p-6 text-center shadow-sm">
+            <p class="font-medium text-on-surface-variant">Todavía no tienes gateways configurados</p>
+            <button type="button" class="mt-4 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white" id="empty-gateway-btn">+ Agregar gateway</button>
+          </div>
+        `;
+        const btn = $('#empty-gateway-btn');
+        if (btn) btn.addEventListener('click', () => openModal({ title: 'Agregar gateway', mode: 'gateway-create', icon: 'location_on' }));
+        return;
+      }
+
+      list.innerHTML = items.map(gateway => {
+        const name = gateway.nombre_zona || gateway.nombre || gateway.device_id;
+        const icon = gateway.icono || 'location_on';
+        return `
+          <article class="rounded-2xl border border-surface-variant bg-white p-4 shadow-sm">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-3">
+                <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-container/25 text-primary">
+                  <span class="material-symbols-outlined">${icon}</span>
+                </div>
+                <div>
+                  <h3 class="font-headline text-xl font-semibold text-on-surface">${name}</h3>
+                  <p class="text-xs text-on-surface-variant">${gateway.device_id}</p>
+                </div>
+              </div>
+
+              <!-- BOTONES EDITAR Y ELIMINAR -->
+              <div class="flex items-center gap-2">
+                <button type="button" class="edit-gateway inline-flex h-10 w-10 items-center justify-center rounded-full bg-surface-container-low text-on-surface-variant transition hover:bg-surface-variant" data-device-id="${gateway.device_id}" aria-label="Editar gateway" title="Editar">
+                  <span class="material-symbols-outlined text-xl">edit</span>
+                </button>
+                <button type="button" class="delete-gateway inline-flex h-10 w-10 items-center justify-center rounded-full bg-error/10 text-error transition hover:bg-error/20" data-device-id="${gateway.device_id}" aria-label="Eliminar gateway" title="Eliminar">
+                  <span class="material-symbols-outlined text-xl">delete</span>
+                </button>
+              </div>
+            </div>
+            <div class="mt-4 flex items-center justify-between">
+              ${gatewayStatus(gateway)}
+            </div>
+          </article>
+        `;
+      }).join('');
+
+      // Evento para Editar Gateway
+      list.querySelectorAll('.edit-gateway').forEach(button => {
+        button.addEventListener('click', () => {
+          const gateway = items.find(item => item.device_id === button.dataset.deviceId);
+          openModal({
+            title: 'Editar gateway',
+            mode: 'gateway-edit',
+            target: gateway.device_id,
+            zone: gateway.nombre_zona || '',
+            icon: gateway.icono || 'location_on',
+            deviceId: gateway.device_id || '',
+            clienteId: gateway.cliente_id || 'cliente-demo',
+            wifiSsid: gateway.wifi_ssid || '',
+            wifiPassword: gateway.wifi_password || '',
+            mqttHost: gateway.mqtt_host || 'broker.hivemq.com',
+            mqttPort: gateway.mqtt_port || 1883,
+            mqttUser: gateway.mqtt_user || '',
+            mqttPassword: gateway.mqtt_password || ''
+          });
+        });
+      });
+
+      // Evento para Eliminar Gateway
+      list.querySelectorAll('.delete-gateway').forEach(button => {
+        button.addEventListener('click', async () => {
+          const deviceId = button.dataset.deviceId;
+          if (!confirm(`¿Estás seguro de que deseas eliminar el gateway "${deviceId}"?`)) {
+            return;
+          }
+
+          try {
+            const res = await fetch(`/api/gateways/${encodeURIComponent(deviceId)}`, {
+              method: 'DELETE'
+            });
+
+            if (res.ok) {
+              cargar(); // Recargar lista tras borrar
+            } else {
+              const json = await res.json().catch(() => ({}));
+              alert(json.error || 'No se pudo eliminar el gateway.');
+            }
+          } catch (err) {
+            console.error('[ERROR] Al borrar gateway:', err);
+            alert('Error de conexión al intentar borrar el gateway.');
+          }
+        });
+      });
+    }
+
+    function renderBeacons(items) {
+      const list = $('#beacon-list');
+      const assigned = items.filter(item => item.asignado !== false);
+      if (!assigned.length) {
+        list.innerHTML = '<p class="rounded-2xl border border-dashed border-surface-variant bg-white p-6 text-center text-sm text-on-surface-variant">Todavía no hay mascotas asignadas.</p>';
+        return;
+      }
+
+      list.innerHTML = assigned.map(beacon => {
+        const name = beacon.nombre_mascota || beacon.nombre || 'Mascota';
+        const icon = beacon.icono || 'pets';
+        return `
+          <article class="rounded-2xl border border-surface-variant bg-white p-4 shadow-sm">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-3">
+                <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-secondary/10 text-secondary">
+                  <span class="material-symbols-outlined">${icon}</span>
+                </div>
+                <div>
+                  <h3 class="font-headline text-xl font-semibold text-on-surface">${name}</h3>
+                  <p class="text-xs text-on-surface-variant">${beacon.mac}</p>
+                </div>
+              </div>
+              <button type="button" class="edit-beacon inline-flex h-10 w-10 items-center justify-center rounded-full bg-surface-container-low text-on-surface-variant" data-mac="${beacon.mac}" aria-label="Editar mascota">
+                <span class="material-symbols-outlined">edit</span>
+              </button>
+              <button type="button" class="delete-beacon inline-flex h-10 w-10 items-center justify-center rounded-full bg-error/10 text-error" data-mac="${beacon.mac}" aria-label="Eliminar mascota">
+                <span class="material-symbols-outlined">delete</span>
+              </button>
+            </div>
+          </article>
+        `;
+      }).join('');
+
+      list.querySelectorAll('.edit-beacon').forEach(button => {
+        const beacon = assigned.find(item => item.mac === button.dataset.mac);
+        button.addEventListener('click', () => openModal({
+          title: 'Editar mascota',
+          mode: 'beacon-edit',
+          target: beacon.mac,
+          name: beacon.nombre_mascota || beacon.nombre || '',
+          icon: beacon.icono || 'pets',
+          mac: beacon.mac
+        }));
+      });
+
+      list.querySelectorAll('.delete-beacon').forEach(button => {
+        button.addEventListener('click', async () => {
+          const mac = button.dataset.mac;
+          if (!confirm(`¿Eliminar este collar (${mac})? Dejará de registrarse aunque el gateway siga detectándolo.`)) return;
+          try {
+            const res = await fetch(`/api/beacons/${encodeURIComponent(mac)}`, { method: 'DELETE' });
+            if (res.ok) {
+              cargar();
+            } else {
+              const json = await res.json().catch(() => ({}));
+              alert(json.error || 'No se pudo eliminar el collar.');
+            }
+          } catch (err) {
+            console.error('[ERROR] Al borrar beacon:', err);
+            alert('Error de conexión al intentar eliminar el collar.');
+          }
+        });
+      });
+    }
+
+    async function cargar() {
+      try {
+        const [gatewaysRes, beaconsRes] = await Promise.all([
+          fetch('/api/gateways?t=' + Date.now(), { cache: 'no-store' }),
+          fetch('/api/beacons?t=' + Date.now(), { cache: 'no-store' })
+        ]);
+        const gateways = await gatewaysRes.json();
+        const beacons = await beaconsRes.json();
+        state.gatewayList = gateways || [];
+        state.beaconList = beacons || [];
+        renderGateways(state.gatewayList);
+        renderBeacons(state.beaconList);
+      } catch (error) {
+        console.error(error);
+        $('#gateway-list').innerHTML = '<p class="text-sm text-error">No se pudieron cargar los gateways.</p>';
+        $('#beacon-list').innerHTML = '<p class="text-sm text-error">No se pudieron cargar las mascotas.</p>';
+      }
+    }
+
+    document.querySelectorAll('.tab-btn').forEach(button => {
+      button.addEventListener('click', () => setActiveTab(button.dataset.tab));
+    });
+
+    $('#add-gateway').addEventListener('click', () => openModal({
+      title: 'Agregar gateway',
+      mode: 'gateway-create',
+      icon: 'location_on',
+      deviceId: 'GW-' + Math.random().toString(16).slice(2, 10).toUpperCase(),
+      clienteId: 'cliente-demo',
+      mqttHost: 'broker.hivemq.com',
+      mqttPort: 1883
+    }));
+    $('#add-mascota').addEventListener('click', () => openModal({ title: 'Agregar mascota', mode: 'beacon-create', icon: 'pets' }));
+
+    // --- Escaneo de código QR para dar de alta un collar por su MAC exacta ---
+    // Alternativa al escaneo ambiental BLE (que puede confundirse con otros dispositivos cercanos).
+    // El QR que viene con el BlueCharm debe codificar su dirección MAC (texto plano, ej. "AA:BB:CC:DD:EE:FF").
+    let qrStream = null;
+    let qrScanFrame = null;
+
+    function normalizarMacDesdeQR(texto) {
+      const match = String(texto || '').match(/([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}/);
+      return match ? match[0].toUpperCase().replace(/-/g, ':') : null;
+    }
+
+    async function detenerEscaneoQR() {
+      if (qrScanFrame) cancelAnimationFrame(qrScanFrame);
+      qrScanFrame = null;
+      if (qrStream) {
+        qrStream.getTracks().forEach(track => track.stop());
+        qrStream = null;
+      }
+      $('#qr-scanner-wrap').classList.add('hidden');
+    }
+
+    async function iniciarEscaneoQR() {
+      if (!('BarcodeDetector' in window)) {
+        alert('Este navegador no soporta lectura de QR con cámara. Escribe la MAC manualmente.');
+        return;
+      }
+      try {
+        qrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        const video = $('#qr-scanner-video');
+        video.srcObject = qrStream;
+        await video.play();
+        $('#qr-scanner-wrap').classList.remove('hidden');
+
+        const detector = new BarcodeDetector({ formats: ['qr_code'] });
+        const escanear = async () => {
+          if (!qrStream) return;
+          try {
+            const codigos = await detector.detect(video);
+            if (codigos.length) {
+              const mac = normalizarMacDesdeQR(codigos[0].rawValue);
+              if (mac) {
+                $('#device-mac').value = mac;
+                await detenerEscaneoQR();
+                return;
+              }
+            }
+          } catch (err) {
+            console.error('[QR] Error al analizar el cuadro:', err);
+          }
+          qrScanFrame = requestAnimationFrame(escanear);
+        };
+        qrScanFrame = requestAnimationFrame(escanear);
+      } catch (err) {
+        console.error('[QR] No se pudo acceder a la cámara:', err);
+        alert('No se pudo acceder a la cámara para escanear el QR.');
+      }
+    }
+
+    $('#scan-beacon-qr').addEventListener('click', iniciarEscaneoQR);
+    $('#qr-scanner-cancel').addEventListener('click', detenerEscaneoQR);
+
+    async function connectToGatewayAccessPoint() {
+      try {
+        const res = await fetch('http://192.168.4.1/health', { mode: 'cors', cache: 'no-store' });
+        if (!res.ok) throw new Error('No responde');
+        const data = await res.json().catch(() => ({ ok: true }));
+        if (data.ok) {
+          alert('Conectado al gateway. Ahora puedes escanear las redes cercanas.');
+          return true;
+        }
+      } catch (error) {
+        alert('No se pudo conectar al M5Stack en modo AP. Comprueba que esté encendido y que el gateway esté en "GatoGateway-Setup".');
+        return false;
+      }
+      return false;
+    }
+
+    async function scanGatewayNetworks() {
+      const ok = await connectToGatewayAccessPoint();
+      if (!ok) return;
+      try {
+        const res = await fetch('http://192.168.4.1/networks', { mode: 'cors', cache: 'no-store' });
+        if (!res.ok) throw new Error('No se pudo listar las redes');
+        const networks = await res.json();
+        const select = $('#gateway-network-list');
+        select.innerHTML = '<option value="">Selecciona una red...</option>' + (networks || []).map((net) => `<option value="${net.ssid}">${net.ssid} (${net.rssi} dBm)</option>`).join('');
+        if (!networks || !networks.length) {
+          select.innerHTML = '<option value="">No se encontraron redes cercanas</option>';
+        }
+      } catch (error) {
+        alert('El gateway no está respondiendo a la lista de redes. Debe estar en modo AP y con la ruta /networks habilitada.');
+      }
+    }
+
+    $('#connect-gateway-ap').addEventListener('click', connectToGatewayAccessPoint);
+    $('#scan-gateway-networks').addEventListener('click', scanGatewayNetworks);
+    $('#gateway-network-list').addEventListener('change', (event) => {
+      const ssid = event.target.value;
+      if (ssid) {
+        $('#gateway-wifi-ssid').value = ssid;
+      }
+    });
+
+    $('.modal-close').addEventListener('click', closeModal);
+    $('#device-modal').addEventListener('click', (event) => {
+      if (event.target === $('#device-modal')) closeModal();
+    });
+
+$('#device-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const formData = new FormData($('#device-form'));
+      const payload = Object.fromEntries(formData.entries());
+      const mode = payload.mode;
+      const target = payload.target;
+
+      if (mode === 'gateway-create' || mode === 'gateway-edit') {
+        const device_id = (payload.device_id || target || '').trim() || 'GW-' + Math.random().toString(16).slice(2, 10).toUpperCase();
+        const wifiSsid = (payload.wifi_ssid || '').trim();
+        const wifiPass = (payload.wifi_password || '').trim();
+        const nombreZona = (payload.nombre_zona || '').trim();
+        const icono = payload.icono || 'location_on';
+
+        // -----------------------------------------------------------------
+        // REGLA CLAVE: Solo enviamos al M5Stack si AMBOS campos tienen texto
+        // -----------------------------------------------------------------
+        const quiereReconfigurarWifi = wifiSsid.length > 0 && wifiPass.length > 0;
+
+        // CASO 1: EDITAR SOLO NOMBRE E ÍCONO (No toca el M5Stack)
+        if (!quiereReconfigurarWifi && mode === 'gateway-edit') {
+          console.log('[EDIT] Guardando solo nombre e ícono en la base de datos local...');
+
+          const patchBody = {};
+          if (nombreZona) patchBody.nombre_zona = nombreZona;
+          if (icono) patchBody.icono = icono;
+
+          const res = await fetch(`/api/gateways/${encodeURIComponent(target)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(patchBody)
+          });
+
+          if (!res.ok) {
+            const json = await res.json().catch(() => ({}));
+            alert(json.error || 'No se pudo actualizar el gateway.');
+            return;
+          }
+
+          closeModal();
+          cargar();
+          return; // AQUÍ TERMINA, NUNCA LLEGA A 192.168.4.1
+        }
+
+        // CASO 2: CREAR NUEVO SIN WI-FI (Error)
+        if (mode === 'gateway-create' && !quiereReconfigurarWifi) {
+          alert('Para crear un gateway nuevo debes ingresar la Red Wi-Fi y la Contraseña.');
+          return;
+        }
+
+        // CASO 3: CONFIGURACIÓN / RECONFIGURACIÓN DE WI-FI EN EL M5STACK
+        const bodyBD = {
+          cliente_id: (payload.cliente_id || 'cliente-demo').trim() || 'cliente-demo',
+          device_id,
+          nombre_zona: nombreZona || 'Escritorio',
+          icono,
+          wifi_ssid: wifiSsid,
+          wifi_password: wifiPass,
+          mqtt_host: 'broker.hivemq.com',
+          mqtt_port: 1883
+        };
+
+        const enviadoAlM5 = await enviarCredencialesAlM5(wifiSsid, wifiPass, device_id);
+
+        if (enviadoAlM5) {
+          alert('¡M5Stack reconfigurado con éxito! Guardando en tu cuenta...');
+          closeModal();
+
+          const registradoBD = await registrarGatewayEnBD(bodyBD);
+          if (registradoBD) {
+            cargar();
+          } else {
+            alert('El M5Stack se configuró. Se registrará automáticamente en la base de datos al recibir la primera lectura.');
+          }
+        } else {
+          alert('No se pudo conectar con el M5Stack (192.168.4.1). Asegúrate de estar conectado a su red Wi-Fi "GatoGateway-Setup".');
+        }
+        return;
+      }
+
+      // CASO 4: MASCOTAS / BEACONS
+      if (mode === 'beacon-create' || mode === 'beacon-edit') {
+        const mac = (payload.mac || target || '').trim();
+        if (!mac) return alert('Escanea el código QR del collar para obtener su MAC.');
+
+        const beaconBody = {
+          mac,
+          nombre_mascota: payload.nombre_mascota || payload.nombre || '',
+          icono: payload.icono || 'pets',
+          asignado: true
+        };
+
+        // Editar una mascota existente no debe volver a validar la MAC como "nueva":
+        // usamos PUT (actualiza sobre la misma MAC) en vez de POST (alta nueva).
+        const url = mode === 'beacon-edit' ? `/api/beacons/${encodeURIComponent(mac)}` : '/api/beacons';
+        const method = mode === 'beacon-edit' ? 'PUT' : 'POST';
+
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(beaconBody)
+        });
+
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          alert(json.error || 'No se pudo guardar la mascota.');
+          return;
+        }
+
+        closeModal();
+        cargar();
+      }
+    });
+
+    // 1. Función para enviar Wi-Fi al M5Stack
+async function enviarCredencialesAlM5(wifiSsid, wifiPass, deviceId = 'M5_1') {
+  try {
+    console.log('[CONFIG] Enviando datos al M5Stack (192.168.4.1)...');
+
+    const respuesta = await fetch('http://192.168.4.1/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({
+        wifi_ssid: wifiSsid,
+        wifi_pass: wifiPass,
+        device_id: deviceId,
+        cliente_id: 'demo_cliente'
+      })
+    });
+
+    const data = await respuesta.json();
+    return data.ok;
+  } catch (err) {
+    console.error('Error contactando al M5Stack:', err);
+    return false;
+  }
+}
+
+// 2. Función para registrar en BD cuando vuelva la conexión
+async function registrarGatewayEnBD(body, intentos = 10) {
+  for (let i = 0; i < intentos; i++) {
+    try {
+      console.log(`[BD] Intentando registrar gateway en BD (Intento ${i + 1}/${intentos})...`);
+      const res = await fetch('/api/gateways/provision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (res.ok) {
+        console.log('[BD] ¡Gateway registrado con éxito en PostgreSQL!');
+        return true;
+      }
+    } catch (err) {
+      console.log('[BD] Aún no hay conexión con el servidor. Esperando 2 segundos...');
+    }
+    // Esperar 2 segundos antes de volver a intentar (tiempo para que el teléfono vuelva a la Wi-Fi)
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  return false;
+}
+    setActiveTab('gateways');
+    renderIcons();
+    cargar();
+    // Refresca la lista de gateways/beacons sola cada 5s para reflejar online/offline y cambios
+    // hechos desde otra pestaña/dispositivo, sin que el usuario tenga que recargar la página.
+    setInterval(() => { cargar(); }, 5000);
+    window.addEventListener('load', () => document.body.classList.add('ui-ready'));
+  </script>
+</body>
+</html>

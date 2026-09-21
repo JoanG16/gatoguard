@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>GatoGuard - Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&amp;family=Quicksand:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+        darkMode: "class",
+        theme: {
+            extend: {
+                colors: {
+                    "on-primary": "#ffffff", "on-primary-fixed": "#2e1500", "outline-variant": "#dac2b1",
+                    "primary-fixed": "#ffdcc2", "on-tertiary-fixed-variant": "#004b6f", "surface": "#f3fbfd",
+                    "on-tertiary-fixed": "#001e2f", "on-secondary-fixed": "#00201a", "surface-container-lowest": "#ffffff",
+                    "on-secondary-container": "#007261", "tertiary-fixed": "#c9e6ff", "tertiary-fixed-dim": "#8aceff",
+                    "surface-tint": "#8f4e00", "surface-variant": "#dce4e6", "inverse-on-surface": "#eaf2f4",
+                    "secondary": "#006b5b", "surface-container-low": "#edf5f7", "background": "#f3fbfd",
+                    "outline": "#877365", "inverse-primary": "#ffb77a", "tertiary": "#006491", "primary": "#8f4e00",
+                    "surface-container": "#e7eff1", "on-tertiary-container": "#004c6f", "on-surface-variant": "#544437",
+                    "tertiary-container": "#6fbef4", "secondary-fixed": "#7cf8dd", "secondary-fixed-dim": "#5ddbc1",
+                    "surface-container-highest": "#dce4e6", "on-tertiary": "#ffffff", "on-surface": "#151d1f",
+                    "primary-container": "#ff9f43", "surface-container-high": "#e2eaec", "inverse-surface": "#2a3234",
+                    "error": "#ba1a1a", "on-primary-fixed-variant": "#6d3a00", "on-error-container": "#93000a",
+                    "on-primary-container": "#6d3a00", "on-error": "#ffffff", "on-secondary": "#ffffff",
+                    "on-secondary-fixed-variant": "#005144", "surface-bright": "#f3fbfd", "primary-fixed-dim": "#ffb77a",
+                    "secondary-container": "#7cf8dd", "error-container": "#ffdad6", "on-background": "#151d1f",
+                    "surface-dim": "#d3dbdd"
+                },
+                borderRadius: { DEFAULT: "0.25rem", lg: "0.5rem", xl: "0.75rem", full: "9999px" },
+                spacing: { md: "16px", sm: "8px", lg: "24px", unit: "4px", gutter: "16px", xs: "4px", margin: "20px", xl: "32px" },
+                fontFamily: {
+                    "headline-lg-mobile": ["Lexend"], "headline-md": ["Lexend"], "body-lg": ["Quicksand"],
+                    "body-md": ["Quicksand"], "label-md": ["Lexend"], "headline-sm": ["Lexend"],
+                    "body-sm": ["Quicksand"], "headline-lg": ["Lexend"], "label-lg": ["Lexend"]
+                },
+                fontSize: {
+                    "headline-lg-mobile": ["28px", { lineHeight: "36px", fontWeight: "600" }],
+                    "headline-md": ["24px", { lineHeight: "32px", fontWeight: "600" }],
+                    "body-lg": ["18px", { lineHeight: "26px", fontWeight: "500" }],
+                    "body-md": ["16px", { lineHeight: "24px", fontWeight: "500" }],
+                    "label-md": ["12px", { lineHeight: "16px", fontWeight: "500" }],
+                    "headline-sm": ["20px", { lineHeight: "28px", fontWeight: "500" }],
+                    "body-sm": ["14px", { lineHeight: "20px", fontWeight: "400" }],
+                    "headline-lg": ["32px", { lineHeight: "40px", letterSpacing: "-0.02em", fontWeight: "600" }],
+                    "label-lg": ["14px", { lineHeight: "20px", letterSpacing: "0.05em", fontWeight: "600" }]
+                }
+            }
+        }
+    }
+</script>
+<style>
+    body { visibility: hidden; font-family: Arial, sans-serif; }
+    body.ui-ready { visibility: visible; }
+    .pulse-animation { animation: pulse-secondary 2s infinite cubic-bezier(0.4, 0, 0.6, 1); }
+    @keyframes pulse-secondary { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .5; transform: scale(1.1); } }
+    .zona-tile { transition: all .25s ease; }
+    .zona-tile.activa { background: rgba(255,159,67,0.18); border-color: #ff9f43; }
+</style>
+</head>
+<body class="bg-surface text-on-surface font-body-md min-h-screen flex flex-col pt-[72px] pb-[90px]">
+
+<header class="fixed top-0 w-full z-50 bg-surface shadow-[0px_4px_20px_rgba(0,0,0,0.05)] flex justify-between items-center px-margin py-md">
+  <div class="w-10 h-10 rounded-full bg-primary-container/40 flex items-center justify-center">
+    <span class="material-symbols-outlined text-primary">pets</span>
+  </div>
+  <h1 class="text-headline-md font-headline-md font-bold text-primary">Gato</h1>
+  <button id="sensors-btn" class="text-on-surface-variant hover:opacity-80 transition-opacity flex items-center justify-center p-2 rounded-full" title="Click para activar notificaciones">
+    <span class="material-symbols-outlined" id="sensors-icon" style="font-variation-settings: 'FILL' 0;">sensors</span>
+  </button>
+</header>
+
+<main class="flex-1 px-margin py-lg flex flex-col gap-lg max-w-4xl mx-auto w-full">
+
+  <section class="flex items-center gap-md">
+    <div class="w-20 h-20 rounded-full overflow-hidden shadow-md border-2 border-primary-container bg-primary-container/30 flex items-center justify-center">
+      <span class="material-symbols-outlined text-primary" style="font-size:40px;">pets</span>
+    </div>
+    <div class="flex flex-col justify-center">
+      <h2 class="text-headline-lg-mobile font-headline-lg-mobile text-on-surface" id="nombre-mascota">Michi</h2>
+      <div class="flex items-center gap-sm mt-1 bg-surface-container-low px-3 py-1 rounded-full w-fit">
+        <span class="w-2 h-2 rounded-full pulse-animation block" id="estado-dot" style="background:#006b5b;"></span>
+        <span class="text-label-lg font-label-lg" id="estado-texto" style="color:#006b5b;">Cargando…</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid grid-cols-1 md:grid-cols-2 gap-md">
+
+    <article class="md:col-span-2 bg-surface-container-lowest rounded-xl p-md shadow-[0px_4px_20px_rgba(0,0,0,0.05)] border border-surface-variant flex flex-col gap-sm">
+      <header class="flex justify-between items-center mb-sm">
+        <h3 class="text-headline-sm font-headline-sm text-on-surface flex items-center gap-2">
+          <span class="material-symbols-outlined text-primary">location_on</span>
+          Ubicación actual
+        </h3>
+        <span class="bg-primary-container/20 text-on-primary-container text-label-md font-label-md px-2 py-1 rounded-md">Live</span>
+      </header>
+      <div class="rounded-lg overflow-hidden relative shadow-inner bg-surface-container-low p-4">
+        <div id="zonas-grid" class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));"></div>
+      </div>
+    </article>
+
+  </section>
+
+  <a id="anomalias-card" href="calendario.html" class="hidden bg-error-container rounded-xl p-md border border-error/30 hover:shadow-md transition-shadow block">
+    <div class="flex items-start gap-md">
+      <span class="material-symbols-outlined text-error">warning</span>
+      <div>
+        <h3 class="text-headline-sm font-headline-sm text-on-error-container">Revisa a Michi</h3>
+        <p id="anomalias-resumen" class="text-body-md text-on-error-container mt-1"></p>
+      </div>
+    </div>
+  </a>
+
+  <section class="bg-surface-container-lowest rounded-xl p-md border border-surface-variant">
+    <div class="flex items-start gap-md">
+      <span class="material-symbols-outlined text-primary">auto_awesome</span>
+      <div>
+        <h3 class="text-headline-sm font-headline-sm">Según su rutina</h3>
+        <p id="rutina-esperada" class="text-body-md text-on-surface-variant mt-1">Consultando lo que suele hacer Michi a esta hora…</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-2 bg-surface shadow-[0px_-4px_20px_rgba(0,0,0,0.05)] rounded-t-xl md:hidden">
+  <a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1 scale-90 transition-all duration-150 group" href="index.html">
+    <span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">home</span>
+    <span class="text-label-md font-label-md mt-1">Home</span>
+  </a>
+  <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors group" href="estadisticas.html"><span class="material-symbols-outlined mb-1 text-[24px]">analytics</span><span class="text-xs">Estadísticas</span></a>
+  <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors group" href="calendario.html"><span class="material-symbols-outlined mb-1 text-[24px]">calendar_month</span><span class="text-xs">Agenda</span></a>
+  <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors group" href="dispositivos.html">
+    <span class="material-symbols-outlined group-hover:opacity-80">wifi_tethering</span>
+    <span class="text-label-md font-label-md mt-1">Dispositivos</span>
+  </a>
+  <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors group" href="perfil.html">
+    <span class="material-symbols-outlined group-hover:opacity-80">pets</span>
+    <span class="text-label-md font-label-md mt-1">Perfil</span>
+  </a>
+</nav>
+
+<script>
+const POLL_MS = 3000;
+const STALE_AFTER_S = 60;
+const $ = (sel) => document.querySelector(sel);
+
+let notificacionesActivas = false;
+let ultimaZonaConocida = null;
+let estadosActuales = [];
+let tiempoEnZona = '—';
+let idsAlertasConocidas = new Set();
+let configuracionAvisos = { avisos_alertas: true, avisos_sin_lecturas: true };
+let ultimaHoraNotificada = null;
+
+function iconoZona(nombre) {
+  const n = (nombre || '').toLowerCase();
+  if (n.includes('comedor') || n.includes('cocina')) return 'restaurant';
+  if (n.includes('arenero') || n.includes('baño')) return 'cleaning_services';
+  if (n.includes('cama') || n.includes('dormitorio')) return 'bed';
+  if (n.includes('escritorio') || n.includes('oficina')) return 'chair';
+  if (n.includes('sala') || n.includes('living')) return 'weekend';
+  return 'location_on';
+}
+
+function tiempoRelativo(fechaISO) {
+  const seg = Math.floor((Date.now() - new Date(fechaISO).getTime()) / 1000);
+  if (seg < 5) return 'justo ahora';
+  if (seg < 60) return `hace ${seg}s`;
+  const min = Math.floor(seg / 60);
+  if (min < 60) return `${min} min`;
+  const horas = Math.floor(min / 60);
+  return `${horas}h ${min % 60}min`;
+}
+
+async function actualizarEstado() {
+  try {
+    const res = await fetch(`/api/estado?t=${Date.now()}`, { cache: 'no-store' });
+    const estados = await res.json();
+    if (!estados || estados.length === 0) return;
+
+    const actual = estados.find(estado => estado.mac) || estados[0];
+    estadosActuales = estados;
+    const segundos = (Date.now() - new Date(actual.actualizado_en).getTime()) / 1000;
+    const rancio = segundos > STALE_AFTER_S;
+
+    $('#estado-dot').style.background = rancio ? '#ba1a1a' : '#006b5b';
+    $('#estado-texto').style.color = rancio ? '#ba1a1a' : '#006b5b';
+    $('#estado-texto').textContent = rancio ? 'Sin señal' : 'Activo ahora';
+
+    $('#sensors-icon').style.color = rancio ? '#ba1a1a' : (notificacionesActivas ? '#006b5b' : '');
+
+    if (ultimaZonaConocida && ultimaZonaConocida !== actual.nombre_zona) {
+      dispararNotificacion(actual.nombre_zona);
+    }
+    ultimaZonaConocida = actual.nombre_zona;
+
+    renderZonasGrid(estados);
+  } catch (err) {
+    console.error('Error /api/estado', err);
+  }
+}
+
+function renderZonasGrid(estados) {
+  const grid = $('#zonas-grid');
+  grid.innerHTML = '';
+
+  // Buscar la zona donde está el gato según la última lectura
+  const actual = estados.find(estado => estado.mac);
+
+  estados.forEach(e => {
+    const activa = actual && e.nombre_zona === actual.nombre_zona;
+    const icono = e.icono || 'location_on';
+
+    const tile = document.createElement('div');
+    tile.className = 'zona-tile relative flex flex-col items-center justify-center gap-1 p-3 rounded-lg border border-surface-variant bg-surface-container-lowest' + (activa ? ' activa' : '');
+    tile.title = e.nombre_zona;
+    tile.setAttribute('aria-label', e.nombre_zona);
+
+    tile.innerHTML = `
+      <span class="material-symbols-outlined ${activa ? 'text-primary font-bold' : 'text-on-surface-variant'}" aria-hidden="true">${icono}</span>
+      <span class="text-xs font-semibold ${activa ? 'text-primary' : 'text-on-surface-variant'}">${e.nombre_zona}</span>
+      ${activa ? `<span class="absolute top-1 right-2 text-[10px] font-bold text-primary">${tiempoEnZona}</span>` : ''}
+    `;
+    grid.appendChild(tile);
+  });
+}
+
+async function actualizarMetricas() {
+  try {
+    const res = await fetch(`/api/historial?limit=200&t=${Date.now()}`, { cache: 'no-store' });
+    const eventos = await res.json();
+    if (!eventos || eventos.length === 0) {
+      tiempoEnZona = 'Sin datos';
+      renderZonasGrid(estadosActuales);
+      return;
+    }
+
+    // Tiempo en la zona actual = desde el último cambio confirmado hasta ahora.
+    tiempoEnZona = tiempoRelativo(eventos[0].cambiado_en);
+    renderZonasGrid(estadosActuales);
+  } catch (err) {
+    console.error('Error /api/historial', err);
+  }
+
+}
+
+async function actualizarAnomalias() {
+  try {
+    const res = await fetch(`/api/anomalias?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const anomalias = await res.json();
+    const activas = anomalias.filter(a => !a.resuelta_en);
+    const pendientes = activas.filter(a => !a.revisada_en);
+    const nuevas = pendientes.filter(a => !idsAlertasConocidas.has(a.id));
+    const avisosPermitidos = nuevas.some(alerta => alerta.tipo === 'sin_senal'
+      ? configuracionAvisos.avisos_sin_lecturas
+      : configuracionAvisos.avisos_alertas);
+    if (idsAlertasConocidas.size && nuevas.length && notificacionesActivas && Notification.permission === 'granted' && avisosPermitidos) {
+      new Notification('Nueva alerta de Michi', { body: 'Revisa la sección de alertas para ver los detalles.' });
+    }
+    idsAlertasConocidas = new Set(anomalias.map(a => a.id));
+    const card = $('#anomalias-card');
+    card.classList.toggle('hidden', pendientes.length === 0);
+    if (pendientes.length > 0) {
+      $('#anomalias-resumen').textContent = 'Hay una alerta activa. Pulsa para ver los detalles.';
+    }
+
+    async function cargarConfiguracionAvisos() {
+      try {
+        const res = await fetch(`/api/configuracion-gato?t=${Date.now()}`, { cache: 'no-store' });
+        if (res.ok) configuracionAvisos = await res.json();
+      } catch (err) { console.error('Error /api/configuracion-gato', err); }
+    }
+
+  } catch (err) {
+    console.error('Error /api/anomalias', err);
+  }
+}
+
+async function actualizarRutinaEsperada() {
+  try {
+    const res = await fetch(`/api/rutina?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const rutina = await res.json();
+    const partes = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Bogota', hour: 'numeric', minute: 'numeric', hour12: false
+    }).formatToParts(new Date());
+    const hora = Number(partes.find(parte => parte.type === 'hour').value) % 24;
+    const minuto = Number(partes.find(parte => parte.type === 'minute').value);
+    const minutos = hora * 60 + minuto;
+    const item = rutina.find(tramo => {
+      const inicio = Number(tramo.franja_horaria);
+      const fin = inicio + Number(tramo.duracion_promedio_min);
+      return minutos >= inicio && minutos < fin;
+    });
+    $('#rutina-esperada').textContent = item
+      ? `A esta hora suele estar en ${item.nombre_zona}.`
+      : 'Todavía no hay un patrón aprendido para esta hora.';
+
+    // Notificación horaria: si la zona esperada coincide con la real, avisa una vez por hora que todo está bien.
+    const horaActual = `${new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })}-${hora}`;
+    if (item && ultimaZonaConocida && item.nombre_zona === ultimaZonaConocida && horaActual !== ultimaHoraNotificada) {
+      ultimaHoraNotificada = horaActual;
+      if (notificacionesActivas && Notification.permission === 'granted' && configuracionAvisos.avisos_alertas) {
+        new Notification('Todo en orden', { body: `Michi está cumpliendo su rutina, se encuentra en ${item.nombre_zona}.` });
+      }
+    }
+  } catch (err) {
+    console.error('Error /api/rutina', err);
+    $('#rutina-esperada').textContent = 'No se pudo consultar la rutina habitual.';
+  }
+}
+
+async function revisarRecordatorios() {
+  try {
+    const res = await fetch(`/api/recordatorios-pendientes?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const pendientes = await res.json();
+    if (!pendientes.length) return;
+    if (notificacionesActivas && Notification.permission === 'granted') {
+      pendientes.forEach(r => new Notification('Recordatorio', { body: r.titulo }));
+    }
+  } catch (err) {
+    console.error('Error /api/recordatorios-pendientes', err);
+  }
+}
+
+
+function dispararNotificacion(nuevaZona) {
+  if (notificacionesActivas && Notification.permission === 'granted') {
+    new Notification('Cambio de zona', { body: `Ahora está en: ${nuevaZona}` });
+  }
+}
+
+$('#sensors-btn').addEventListener('click', async () => {
+  if (!('Notification' in window)) { alert('Este navegador no soporta notificaciones.'); return; }
+  const permiso = await Notification.requestPermission();
+  notificacionesActivas = permiso === 'granted';
+  $('#sensors-icon').style.fontVariationSettings = notificacionesActivas ? "'FILL' 1" : "'FILL' 0";
+});
+
+let actualizando = false;
+async function tick() {
+  if (actualizando) return;
+  actualizando = true;
+  try {
+    await Promise.all([actualizarEstado(), actualizarMetricas(), actualizarAnomalias(), actualizarRutinaEsperada(), revisarRecordatorios()]);
+  } finally {
+    actualizando = false;
+  }
+}
+tick();
+cargarConfiguracionAvisos();
+setInterval(tick, POLL_MS);
+</script>
+<script>window.addEventListener('load', () => document.body.classList.add('ui-ready')); setTimeout(() => document.body.classList.add('ui-ready'), 1500);</script>
+</body>
+</html>
