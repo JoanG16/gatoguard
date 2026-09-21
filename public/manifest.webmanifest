@@ -1,0 +1,25 @@
+{
+  "name": "GatoGuard",
+  "short_name": "GatoGuard",
+  "description": "Monitoreo de rutina y alertas de tu mascota",
+  "start_url": "/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f3fbfd",
+  "theme_color": "#8f4e00",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

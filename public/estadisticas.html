@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#8f4e00">
   <title>GatoGuard - Estadísticas</title>
   <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined&family=Lexend:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -111,5 +111,6 @@
     setInterval(()=>{cargar().catch(console.error)},15000);
   </script>
   <script>window.addEventListener('load',()=>document.body.classList.add('ui-ready'));setTimeout(()=>document.body.classList.add('ui-ready'),1500)</script>
+<script src="/pwa.js"></script>
 </body>
 </html>

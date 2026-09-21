@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#8f4e00">
   <title>GatoGuard - Perfil</title>
   <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined&family=Lexend:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -21,5 +21,6 @@
     async function cargar(){const [perfilRes,configRes]=await Promise.all([fetch('/api/perfil?t='+Date.now(),{cache:'no-store'}),fetch('/api/configuracion-gato?t='+Date.now(),{cache:'no-store'})]);const perfil=await perfilRes.json(),config=await configRes.json();$('#nombre-titulo').textContent=perfil.nombre;$('#mac').textContent=`Beacon ${perfil.mac}`;$('#zona').textContent=perfil.zona_actual?`Última zona: ${perfil.zona_actual}`:'Sin ubicación confirmada';for(const campo of form.elements){if(campo.name&&config[campo.name]!==null&&config[campo.name]!==undefined)campo.value=config[campo.name]}if(config.foto_url){$('#foto').src=config.foto_url;$('#foto').classList.remove('hidden');$('#icono-foto').classList.add('hidden')}} cargar().catch(console.error);
     form.addEventListener('submit',async e=>{e.preventDefault();const datos=Object.fromEntries(new FormData(form).entries());const res=await fetch('/api/configuracion-gato',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(datos)});$('#mensaje').textContent=res.ok?'Guardado.':'No se pudo guardar.';if(res.ok)$('#nombre-titulo').textContent=datos.nombre});
   </script><script>window.addEventListener('load',()=>document.body.classList.add('ui-ready'));setTimeout(()=>document.body.classList.add('ui-ready'),1500)</script>
+<script src="/pwa.js"></script>
 </body>
 </html>
