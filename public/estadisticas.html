@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#8f4e00">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="manifest" href="/manifest.webmanifest"><link rel="stylesheet" href="/ui-polish.css">  <meta name="theme-color" content="#0f766e">
   <title>GatoGuard - Estadísticas</title>
   <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined&family=Lexend:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>body{visibility:hidden;font-family:Arial,sans-serif}body.ui-ready{visibility:visible}</style>
-  <script>tailwind.config={theme:{extend:{colors:{surface:"#f3fbfd",primary:"#8f4e00","primary-container":"#ff9f43","on-surface":"#151d1f","on-surface-variant":"#544437","surface-container-low":"#edf5f7",secondary:"#006b5b"},fontFamily:{headline:["Lexend"],body:["Quicksand"]}}}}</script>
+  <style>body{visibility:hidden;font-family:Quicksand,sans-serif}body.ui-ready{visibility:visible}:focus-visible{outline:3px solid #e76f51;outline-offset:3px}</style>
+  <script>tailwind.config={theme:{extend:{colors:{surface:"#f5fbfa",primary:"#0f766e","primary-container":"#d7f3ee","on-surface":"#173231","on-surface-variant":"#47615f","surface-container-low":"#eaf5f3",secondary:"#0f766e"},fontFamily:{headline:["Lexend"],body:["Quicksand"]}}}}</script>
 </head>
 <body class="min-h-screen bg-surface pb-24 text-on-surface font-body">
   <header class="fixed top-0 z-50 flex w-full items-center justify-between bg-surface px-5 py-4 shadow-sm"><a href="index.html" class="text-primary"><span class="material-symbols-outlined">arrow_back</span></a><h1 class="font-headline text-xl font-bold text-primary">Estadísticas</h1><span class="w-6"></span></header>
@@ -31,11 +31,11 @@
     </div>
   </dialog>
   <nav class="fixed bottom-0 left-0 z-50 flex w-full justify-around rounded-t-xl bg-surface px-2 py-2 shadow-[0px_-4px_20px_rgba(0,0,0,0.05)] md:hidden">
-    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="index.html"><span class="material-symbols-outlined">home</span><span class="text-xs">Home</span></a>
+    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="index.html"><span class="material-symbols-outlined">home</span><span class="text-xs">Inicio</span></a>
     <a class="flex flex-col items-center rounded-full bg-primary-container px-3 py-1 text-on-primary-container" href="estadisticas.html"><span class="material-symbols-outlined">analytics</span><span class="text-xs">Estadísticas</span></a>
     <a class="flex flex-col items-center p-2 text-on-surface-variant" href="calendario.html"><span class="material-symbols-outlined">calendar_month</span><span class="text-xs">Agenda</span></a>
     <a class="flex flex-col items-center p-2 text-on-surface-variant" href="dispositivos.html"><span class="material-symbols-outlined">wifi_tethering</span><span class="text-xs">Dispositivos</span></a>
-    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="perfil.html"><span class="material-symbols-outlined">pets</span><span class="text-xs">Perfil</span></a>
+    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="perfil.html"><span class="material-symbols-outlined">account_circle</span><span class="text-xs">Cuenta</span></a>
   </nav>
   <script>
     const colores=['#f59e0b','#0d9488','#3b82f6','#8b5cf6','#ec4899','#84cc16','#ef4444','#06b6d4'];
@@ -74,22 +74,20 @@
       $('#subtitulo-cumplimiento').textContent=modo==='week'?'Días cumplidos de los 7 días de la semana.':'Días cumplidos del mes seleccionado.';
       $('#cumplimiento-lugares').innerHTML= cumplimiento.length?cumplimiento.map(x=>{const c=colores[x.indice%colores.length];return `<article class="flex min-h-28 flex-col items-center justify-center rounded-xl p-2 text-center" style="background:${c}18;color:${c}"><span class="material-symbols-outlined text-2xl">${iconos[x.zona]||'location_on'}</span><p class="mt-1 truncate max-w-full text-xs font-semibold">${x.zona}</p><strong class="mt-1 text-lg">${x.diasCumplidos}/${dias}</strong><span class="text-xs font-semibold">${x.porcentaje}%</span></article>`}).join(''):'<p class="text-on-surface-variant">Aún no hay una rutina aprendida.</p>';
       const hoyLocal=new Date().toLocaleDateString('en-CA',{timeZone:'America/Bogota'});
-      // Tabla de rutina por hora: cuadrícula coloreada por zona (24 filas), con borde verde si coincide con lo esperado y rojo si no.
+      // Solo se colorean las horas cumplidas; una hora no cumplida queda disponible para investigar.
       const colorZona=zona=>zona?colores[zonas.indexOf(zona)%colores.length]:null;
       $('#grafico-rutina').innerHTML=`<div class="min-w-[${Math.max(360,dias*40)}px] rounded-2xl bg-surface-container-low p-2"><div class="grid gap-1" style="grid-template-columns:40px repeat(${dias},minmax(26px,1fr))"><span></span>${fechas.map(f=>`<span class="rounded-lg bg-white py-1 text-center text-[8px] font-semibold ${f===hoyLocal?'shadow-[0_0_0_2px_#0d9488,0_3px_8px_rgba(13,148,136,0.25)]':''}">${f.slice(8,10)}/${f.slice(5,7)}</span>`).join('')}${Array.from({length:24},(_,h)=>`<span class="h-6 text-right text-[9px] leading-6 text-on-surface-variant">${String(h).padStart(2,'0')}:00</span>${fechas.map((f,dia)=>{
-        const esperado=esperadoPorDia[dia][h];const real=actividadPorDia[dia][h];const cumplio=esperado&&real===esperado;const sinDato=!esperado&&!real;const esFuturo=new Date(`${f}T${String(h).padStart(2,'0')}:00`)>new Date();
-        const colorFondo=colorZona(real)||colorZona(esperado);
-        let estilo,borde;
-        if(esFuturo){estilo='background:#e5e7eb';borde='';}
-        else if(sinDato){estilo='background:#e5e7eb';borde='';}
-        else if(esperado&&!real){estilo=`background:${colorZona(esperado)}22;border:2px dashed ${colorZona(esperado)}`;borde='';}
-        else if(cumplio){estilo=`background:${colorFondo}`;borde='box-shadow:0 0 0 2px #16a34a inset';}
-        else{estilo=`background:${colorFondo}`;borde='box-shadow:0 0 0 2px #dc2626 inset';}
-        return `<button type="button" class="celda-hora h-6 rounded-md hover:opacity-80" style="${estilo};${borde}" data-fecha="${f}" data-hora="${h}" title="${f} ${String(h).padStart(2,'0')}:00 · Rutina: ${esperado||'Sin definir'}${real?` · Real: ${real}`:''}"></button>`
+        const esperado=esperadoPorDia[dia][h];const real=actividadPorDia[dia][h];const cumplio=Boolean(esperado&&real===esperado);
+        const estilo=cumplio?`background:${colorZona(real)};box-shadow:0 0 0 2px #16a34a inset`:'background:#e5e7eb';
+        const pista=cumplio?'Rutina cumplida':'Revisar esta hora en Agenda';
+        return `<button type="button" class="celda-hora h-6 rounded-md hover:opacity-80" style="${estilo}" data-fecha="${f}" data-hora="${h}" data-cumplio="${cumplio}" title="${f} ${String(h).padStart(2,'0')}:00 · ${pista}${esperado?` · Esperado: ${esperado}`:''}${real?` · Real: ${real}`:''}"></button>`
       }).join('')}`).join('')}</div></div>`;
       $('#leyenda-rutina').innerHTML=`${zonas.map(zona=>`<span class="inline-flex items-center gap-1 rounded-xl border px-3 py-2 text-xs font-semibold" style="border-color:${colorZona(zona)}55;background:${colorZona(zona)}18;color:${colorZona(zona)}"><span class="h-2.5 w-2.5 rounded-full" style="background:${colorZona(zona)}"></span>${zona}</span>`).join('')}<span class="inline-flex items-center gap-1 rounded-xl border px-3 py-2 text-xs font-semibold text-on-surface-variant" style="box-shadow:0 0 0 2px #16a34a inset">Cumplió</span><span class="inline-flex items-center gap-1 rounded-xl border px-3 py-2 text-xs font-semibold text-on-surface-variant" style="box-shadow:0 0 0 2px #dc2626 inset">No cumplió</span><span class="inline-flex items-center gap-1 rounded-xl border border-dashed px-3 py-2 text-xs font-semibold text-on-surface-variant">Esperado, sin señal</span><span class="inline-flex items-center gap-1 rounded-xl border px-3 py-2 text-xs font-semibold text-on-surface-variant bg-[#e5e7eb]">Sin rutina definida</span>`;
       $('#grafico-rutina').querySelectorAll('.celda-hora').forEach(btn=>{
-        btn.addEventListener('click',()=>mostrarDetalleHora(btn.dataset.fecha,Number(btn.dataset.hora)));
+        btn.addEventListener('click',()=>{
+          if (btn.dataset.cumplio === 'true') mostrarDetalleHora(btn.dataset.fecha,Number(btn.dataset.hora));
+          else window.location.href=`calendario.html?fecha=${btn.dataset.fecha}`;
+        });
       });
     }
     async function mostrarDetalleHora(fecha,hora){
@@ -111,6 +109,7 @@
     setInterval(()=>{cargar().catch(console.error)},15000);
   </script>
   <script>window.addEventListener('load',()=>document.body.classList.add('ui-ready'));setTimeout(()=>document.body.classList.add('ui-ready'),1500)</script>
+<script src="/motion.js"></script>
 <script src="/pwa.js"></script>
 </body>
 </html>

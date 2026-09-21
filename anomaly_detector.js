@@ -9,16 +9,18 @@ const Z_SCORE_THRESHOLD = Number(process.env.Z_SCORE_THRESHOLD || 3);
 const IF_SCORE_THRESHOLD = Number(process.env.IF_SCORE_THRESHOLD || 0.62);
 const MIN_TRAINING_ROWS = Number(process.env.MIN_TRAINING_ROWS || 50);
 const ROUTINE_CONFIRM_POLLS = Number(process.env.ROUTINE_CONFIRM_POLLS || 3);
-const MIN_ROUTINE_DWELL_MINUTES = Number(process.env.MIN_ROUTINE_DWELL_MINUTES || 6);
+const MIN_ROUTINE_DWELL_MINUTES = Number(process.env.MIN_ROUTINE_DWELL_MINUTES || 60);
+const ZONE_WINDOW_SECONDS = Number(process.env.ZONE_WINDOW_SECONDS || 8);
+const MIN_RSSI_DBM = Number(process.env.MIN_RSSI_DBM || -65);
 const TREE_COUNT = 50;
 const SAMPLE_SIZE = 128;
-const TIME_ZONE = process.env.TIME_ZONE || 'America/Mexico_City';
+const TIME_ZONE = process.env.TIME_ZONE || 'America/Bogota';
 let rutinaPendiente = null;
 let rutinaConfirmaciones = 0;
 
 async function umbralSinLecturas() {
   const { rows } = await pool.query(
-    'SELECT umbral_sin_lecturas_segundos FROM gato_config WHERE mac = $1',
+    'SELECT umbral_sin_lecturas_segundos FROM gato_config WHERE UPPER(mac) = UPPER($1)',
     [TARGET_MAC]
   );
   return Number(rows[0]?.umbral_sin_lecturas_segundos || STALE_AFTER_SECONDS);
@@ -31,6 +33,15 @@ function franjaActual(fecha) {
   const hora = Number(partes.find(parte => parte.type === 'hour').value) % 24;
   const minuto = Number(partes.find(parte => parte.type === 'minute').value);
   return Math.floor((hora * 60 + minuto) / 30);
+}
+
+function minutosActual(fecha) {
+  const partes = new Intl.DateTimeFormat('en-US', {
+    timeZone: TIME_ZONE, hour: 'numeric', minute: 'numeric', hour12: false
+  }).formatToParts(fecha);
+  const hora = Number(partes.find(parte => parte.type === 'hour').value) % 24;
+  const minuto = Number(partes.find(parte => parte.type === 'minute').value);
+  return hora * 60 + minuto;
 }
 
 function media(valores) {
@@ -121,7 +132,7 @@ async function abrirAnomalia(tipo, descripcion, zScore, ifScore, capa = 3, clave
   const { rows } = await pool.query(
     `SELECT id, descripcion
      FROM anomalias
-     WHERE mac = $1 AND tipo = $2 AND resuelta_en IS NULL`,
+     WHERE UPPER(mac) = UPPER($1) AND tipo = $2 AND resuelta_en IS NULL`,
     [TARGET_MAC, tipo]
   );
   const mismaAnomalia = rows.length > 0 && (
@@ -151,7 +162,7 @@ async function resolverAnomalia(tipo) {
   await pool.query(
     `UPDATE anomalias
      SET resuelta_en = now()
-     WHERE mac = $1 AND tipo = $2 AND resuelta_en IS NULL`,
+     WHERE UPPER(mac) = UPPER($1) AND tipo = $2 AND resuelta_en IS NULL`,
     [TARGET_MAC, tipo]
   );
 }
@@ -160,7 +171,7 @@ async function detectar() {
   const { rows: ultimasLecturas } = await pool.query(
     `SELECT time
      FROM telemetria_raw
-     WHERE mac = $1
+     WHERE UPPER(mac) = UPPER($1)
      ORDER BY time DESC
      LIMIT 1`,
     [TARGET_MAC]
@@ -173,21 +184,52 @@ async function detectar() {
 
   const { rows: estados } = await pool.query(
     `SELECT device_id, nombre_zona, rssi_promedio, actualizado_en
-     FROM estado_actual WHERE mac = $1`,
+     FROM estado_actual
+     WHERE UPPER(mac) = UPPER($1)
+     ORDER BY actualizado_en DESC NULLS LAST
+     LIMIT 1`,
     [TARGET_MAC]
   );
-  const estado = estados[0];
+  let estado = estados[0];
 
   if (!estado) {
-    if (segundosDesdeUltimaLectura <= umbralLecturas) {
+    // El detector de zona y este proceso arrancan en paralelo. Si todavía no
+    // existe estado_actual, reconstruimos la ubicación con la misma ventana
+    // y umbral RSSI en vez de abandonar este ciclo de anomalías.
+    const { rows: lecturasRecientes } = await pool.query(
+      `SELECT device_id, AVG(rssi)::numeric(6,2) AS rssi_promedio
+       FROM telemetria_raw
+       WHERE UPPER(mac) = UPPER($1)
+         AND rssi >= $2
+         AND time > now() - ($3 || ' seconds')::interval
+       GROUP BY device_id
+       ORDER BY rssi_promedio DESC
+       LIMIT 1`,
+      [TARGET_MAC, MIN_RSSI_DBM, ZONE_WINDOW_SECONDS]
+    );
+    const lecturaReciente = lecturasRecientes[0];
+    if (lecturaReciente) {
+      const { rows: zonasRecientes } = await pool.query(
+        'SELECT nombre_zona FROM zonas WHERE device_id = $1',
+        [lecturaReciente.device_id]
+      );
+      estado = {
+        device_id: lecturaReciente.device_id,
+        nombre_zona: zonasRecientes[0]?.nombre_zona || lecturaReciente.device_id,
+        rssi_promedio: lecturaReciente.rssi_promedio,
+        actualizado_en: new Date(),
+      };
+      console.warn(`[ZONA] Estado aún no persistido; uso lectura reciente de "${estado.nombre_zona}" para evaluar anomalías.`);
+    } else if (segundosDesdeUltimaLectura <= umbralLecturas) {
       console.warn('[ZONA] Se reciben lecturas, pero ninguna supera el RSSI mínimo para confirmar una zona.');
       await resolverAnomalia('sin_datos');
       await resolverAnomalia('zona_no_confirmada');
+      return;
     } else {
       await abrirAnomalia('sin_datos', 'No hay una ubicación confirmada para el gato.', null, null, 1);
       await resolverAnomalia('zona_no_confirmada');
+      return;
     }
-    return;
   }
   await resolverAnomalia('sin_datos');
 
@@ -214,7 +256,7 @@ async function detectar() {
   const { rows: lecturas } = await pool.query(
     `SELECT device_id, rssi, time
      FROM telemetria_raw
-     WHERE mac = $1 AND time > now() - interval '30 days'
+     WHERE UPPER(mac) = UPPER($1) AND time > now() - interval '30 days'
      ORDER BY time ASC`,
     [TARGET_MAC]
   );
@@ -245,14 +287,55 @@ async function detectar() {
     ? 0
     : (Number(lecturaSospechosa.rssi) - promedio) / desviacion;
   const slot = franjaActual(new Date());
+  const minutoActual = minutosActual(new Date());
   const patron = await pool.query(
-    `SELECT nombre_zona
-     FROM rutinas_patron
-     WHERE mac = $1 AND dia_tipo = 'todos' AND franja_horaria = $2
-     ORDER BY tiempo_total_min DESC LIMIT 1`,
-    [TARGET_MAC, slot]
+    `WITH eventos AS (
+      SELECT nombre_zona, cambiado_en,
+             LEAD(cambiado_en) OVER (ORDER BY cambiado_en) AS siguiente
+      FROM historial_zona
+      WHERE UPPER(mac) = UPPER($1)
+     ),
+     segmentos AS (
+      SELECT nombre_zona,
+             EXTRACT(HOUR FROM cambiado_en AT TIME ZONE $2)::int * 60 +
+               EXTRACT(MINUTE FROM cambiado_en AT TIME ZONE $2)::int AS inicio_min,
+             EXTRACT(EPOCH FROM (siguiente - cambiado_en)) / 60 AS duracion_min
+      FROM eventos
+      WHERE siguiente IS NOT NULL
+        AND siguiente > cambiado_en
+        AND siguiente - cambiado_en <= interval '24 hours'
+     ),
+     patrones AS (
+      SELECT inicio_min, nombre_zona, COUNT(*)::int AS observaciones
+      FROM segmentos
+      GROUP BY inicio_min, nombre_zona
+      HAVING COUNT(*) >= 2
+     ),
+     ordenados AS (
+      SELECT inicio_min, nombre_zona, observaciones,
+             LEAD(inicio_min) OVER (ORDER BY inicio_min) AS siguiente_inicio
+      FROM (
+        SELECT patrones.*,
+               ROW_NUMBER() OVER (
+                 PARTITION BY inicio_min
+                 ORDER BY observaciones DESC, nombre_zona
+               ) AS prioridad
+        FROM patrones
+      ) seleccionados
+      WHERE prioridad = 1
+     )
+     SELECT nombre_zona, inicio_min AS franja_horaria,
+           GREATEST(1, COALESCE(siguiente_inicio, 1440) - inicio_min)::int AS duracion_promedio_min
+     FROM ordenados
+     ORDER BY inicio_min`,
+    [TARGET_MAC, TIME_ZONE]
   );
-  const zonaInusual = patron.rows[0] && patron.rows[0].nombre_zona !== zonaObservada;
+  const tramoEsperado = patron.rows.find(tramo => {
+    const inicio = Number(tramo.franja_horaria);
+    return minutoActual >= inicio && minutoActual < inicio + Number(tramo.duracion_promedio_min);
+  });
+  const patronActual = tramoEsperado ? { rows: [tramoEsperado] } : { rows: [] };
+  const zonaInusual = patronActual.rows[0] && patronActual.rows[0].nombre_zona !== zonaObservada;
   if (sinSenal) {
     rutinaPendiente = null;
     rutinaConfirmaciones = 0;
@@ -289,7 +372,7 @@ async function detectar() {
   const { rows: cambios } = await pool.query(
     `SELECT cambiado_en
      FROM historial_zona
-     WHERE mac = $1
+     WHERE UPPER(mac) = UPPER($1)
      ORDER BY cambiado_en DESC
      LIMIT 1`,
     [TARGET_MAC]
@@ -301,10 +384,10 @@ async function detectar() {
   if (candidatoZScore && ((rutinaPersistente) || (!zonaInusual && ifScore >= IF_SCORE_THRESHOLD))) {
     const tipo = rutinaPersistente ? 'rutina_inusual' : 'rssi_inusual';
     const descripcion = zonaInusual
-      ? `${sinSenal ? 'La última ubicación conocida de Michi fue' : 'Michi está'} en "${zonaObservada}", aunque a esta hora suele estar en "${patron.rows[0].nombre_zona}". ${sinSenal ? `No hay lecturas desde hace ${tiempoSinLecturaTexto(segundosSinLectura)}.` : `Lleva allí ${duracionTexto(minutosEnZona)}.`}`
+      ? `${sinSenal ? 'La última ubicación conocida de Michi fue' : 'Michi está'} en "${zonaObservada}", aunque a esta hora suele estar en "${patronActual.rows[0].nombre_zona}". ${sinSenal ? `No hay lecturas desde hace ${tiempoSinLecturaTexto(segundosSinLectura)}.` : `Lleva allí ${duracionTexto(minutosEnZona)}.`}`
       : `La señal detectada (${Number(lecturaSospechosa.rssi).toFixed(1)} dBm) está muy fuera de lo habitual (desviación ${Math.abs(zScore).toFixed(2)}×).`;
     const clave = zonaInusual
-      ? `${zonaObservada}|${patron.rows[0].nombre_zona}`
+      ? `${zonaObservada}|${patronActual.rows[0].nombre_zona}`
       : null;
     await abrirAnomalia(tipo, descripcion, zScore, ifScore, 3, clave);
   } else {

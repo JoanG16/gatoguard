@@ -36,6 +36,24 @@ async function ensureDeviceSchema() {
     `);
     await pool.query('UPDATE gateways SET nombre = COALESCE(nombre, nombre_zona) WHERE nombre IS NULL AND nombre_zona IS NOT NULL');
     await pool.query('UPDATE beacons SET nombre_mascota = COALESCE(nombre_mascota, nombre) WHERE nombre_mascota IS NULL AND nombre IS NOT NULL');
+    // Las primeras lecturas se guardaron con distinta capitalización de MAC.
+    // Conservamos el estado más reciente y dejamos todas las tablas con una grafía única.
+    await pool.query(`
+      DELETE FROM estado_actual antiguo
+      USING estado_actual reciente
+      WHERE UPPER(antiguo.mac) = UPPER(reciente.mac)
+        AND (
+          antiguo.actualizado_en < reciente.actualizado_en
+          OR (
+            antiguo.actualizado_en = reciente.actualizado_en
+            AND antiguo.ctid < reciente.ctid
+          )
+        )
+    `);
+    await pool.query('UPDATE estado_actual SET mac = UPPER(mac) WHERE mac <> UPPER(mac)');
+    await pool.query('UPDATE historial_zona SET mac = UPPER(mac) WHERE mac <> UPPER(mac)');
+    await pool.query('UPDATE anomalias SET mac = UPPER(mac) WHERE mac <> UPPER(mac)');
+    await pool.query('UPDATE rutinas_patron SET mac = UPPER(mac) WHERE mac <> UPPER(mac)');
   } catch (err) {
     console.error('[ERROR] ensureDeviceSchema:', err.message);
   }
@@ -264,7 +282,17 @@ app.get('/api/anomalias', async (req, res) => {
     const hasta = req.query.hasta || null;
     const revisada = req.query.revisada;
     const archivada = req.query.archivada === 'true';
-    const condiciones = ['mac = $1', archivada ? 'archivada_en IS NOT NULL' : 'archivada_en IS NULL'];
+    const condiciones = [
+      'UPPER(mac) = UPPER($1)',
+      archivada ? 'archivada_en IS NOT NULL' : 'archivada_en IS NULL',
+      // Una alerta de pérdida de señal deja de estar activa cuando vuelve a
+      // entrar una lectura posterior a su detección, aunque el detector aún
+      // no haya alcanzado a escribir resuelta_en.
+      `(tipo <> 'sin_senal' OR NOT EXISTS (
+         SELECT 1 FROM telemetria_raw t
+         WHERE UPPER(t.mac) = UPPER($1) AND t.time > anomalias.detectada_en
+       ))`
+    ];
     const parametros = [process.env.TARGET_MAC || 'dd:88:00:00:3e:15'];
     if (desde) { parametros.push(desde); condiciones.push(`detectada_en >= $${parametros.length}::date`); }
     if (hasta) { parametros.push(hasta); condiciones.push(`detectada_en < ($${parametros.length}::date + interval '1 day')`); }
@@ -276,7 +304,7 @@ app.get('/api/anomalias', async (req, res) => {
               (SELECT z.nombre_zona
                FROM estado_actual e
                JOIN zonas z ON z.device_id = e.device_id
-               WHERE e.mac = $1
+               WHERE UPPER(e.mac) = UPPER($1)
                LIMIT 1) AS zona_actual,
               ROUND(EXTRACT(EPOCH FROM (COALESCE(resuelta_en, now()) - detectada_en)))::int AS duracion_segundos
        FROM anomalias
@@ -320,7 +348,7 @@ app.get('/api/anomalias-por-dia', async (req, res) => {
               COUNT(*)::int AS total,
               COUNT(*) FILTER (WHERE falso_positivo IS NOT TRUE)::int AS relevantes
        FROM anomalias
-       WHERE mac = $1
+       WHERE UPPER(mac) = UPPER($1)
          AND archivada_en IS NULL
          AND ($2::date IS NULL OR (detectada_en AT TIME ZONE 'America/Bogota') >= $2::date)
          AND ($2::date IS NULL OR (detectada_en AT TIME ZONE 'America/Bogota') < ($2::date + interval '1 month'))
@@ -344,7 +372,7 @@ app.get('/api/anomalias-dia/:fecha', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT id, tipo, descripcion, capa, z_score, if_score, detectada_en, resuelta_en, revisada_en, comentario, falso_positivo
        FROM anomalias
-       WHERE mac = $1
+       WHERE UPPER(mac) = UPPER($1)
          AND archivada_en IS NULL
          AND (detectada_en AT TIME ZONE 'America/Bogota')::date = $2::date
        ORDER BY detectada_en DESC`,
@@ -365,7 +393,7 @@ app.get('/api/recordatorios', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT id, fecha, hora, titulo, notificar, notificado
        FROM recordatorios
-       WHERE mac = $1
+       WHERE UPPER(mac) = UPPER($1)
          AND ($2::date IS NULL OR fecha >= $2::date)
          AND ($2::date IS NULL OR fecha < ($2::date + interval '1 month'))
        ORDER BY fecha, hora`,
@@ -433,7 +461,7 @@ app.get('/api/recordatorios-pendientes', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT id, fecha, hora, titulo
        FROM recordatorios
-       WHERE mac = $1
+       WHERE UPPER(mac) = UPPER($1)
          AND notificar = true
          AND notificado = false
          AND (fecha + hora) <= (now() AT TIME ZONE 'America/Bogota')
@@ -455,12 +483,12 @@ app.patch('/api/anomalias/:id', async (req, res) => {
   if (!['revisar', 'archivar', 'desarchivar', 'comentar', 'falso_positivo'].includes(accion)) return res.status(400).json({ error: 'Acción no válida.' });
   try {
     if (accion === 'comentar') {
-      const { rowCount } = await pool.query('UPDATE anomalias SET comentario = $1 WHERE id = $2 AND mac = $3', [req.body.comentario || null, req.params.id, process.env.TARGET_MAC || 'dd:88:00:00:3e:15']);
+      const { rowCount } = await pool.query('UPDATE anomalias SET comentario = $1 WHERE id = $2 AND UPPER(mac) = UPPER($3)', [req.body.comentario || null, req.params.id, process.env.TARGET_MAC || 'dd:88:00:00:3e:15']);
       if (!rowCount) return res.status(404).json({ error: 'Alerta no encontrada.' });
       return res.json({ ok: true });
     }
     if (accion === 'falso_positivo') {
-      const { rowCount } = await pool.query('UPDATE anomalias SET falso_positivo = $1 WHERE id = $2 AND mac = $3', [Boolean(req.body.valor), req.params.id, process.env.TARGET_MAC || 'dd:88:00:00:3e:15']);
+      const { rowCount } = await pool.query('UPDATE anomalias SET falso_positivo = $1 WHERE id = $2 AND UPPER(mac) = UPPER($3)', [Boolean(req.body.valor), req.params.id, process.env.TARGET_MAC || 'dd:88:00:00:3e:15']);
       if (!rowCount) return res.status(404).json({ error: 'Alerta no encontrada.' });
       return res.json({ ok: true });
     }
@@ -468,7 +496,7 @@ app.patch('/api/anomalias/:id', async (req, res) => {
     const valor = accion === 'desarchivar' ? null : 'now()';
     const { rowCount } = await pool.query(
       `UPDATE anomalias SET ${campo} = ${valor === null ? 'NULL' : `COALESCE(${campo}, now())`}
-       WHERE id = $1 AND mac = $2`,
+       WHERE id = $1 AND UPPER(mac) = UPPER($2)`,
       [req.params.id, process.env.TARGET_MAC || 'dd:88:00:00:3e:15']
     );
     if (!rowCount) return res.status(404).json({ error: 'Alerta no encontrada.' });
@@ -667,6 +695,52 @@ app.get('/api/beacons', async (req, res) => {
   }
 });
 
+app.get('/api/cuenta', async (req, res) => {
+  try {
+    const [gateways, beacons, config] = await Promise.all([
+      pool.query(
+        `SELECT g.id, g.cliente_id, g.device_id, g.nombre, g.nombre_zona, g.icono,
+                g.created_at, g.updated_at,
+                (e.actualizado_en IS NOT NULL AND e.actualizado_en > now() - interval '15 seconds') AS online,
+                e.actualizado_en AS ultimo_heartbeat
+         FROM gateways g
+         LEFT JOIN estado_actual e ON e.device_id = g.device_id
+         ORDER BY g.nombre NULLS LAST, g.device_id`
+      ),
+      pool.query(
+        `SELECT DISTINCT ON (UPPER(TRIM(mac)))
+                mac, COALESCE(nombre_mascota, nombre, 'Mascota') AS nombre,
+                asignado, created_at, ultimo_visto
+         FROM beacons
+         WHERE asignado = true
+         ORDER BY UPPER(TRIM(mac)), ultimo_visto DESC NULLS LAST, created_at DESC`
+      ),
+      pool.query(
+        `SELECT nombre FROM gato_config
+         WHERE UPPER(mac) = UPPER($1)
+         LIMIT 1`,
+        [process.env.TARGET_MAC || 'dd:88:00:00:3e:15']
+      )
+    ]);
+
+    const clienteId = gateways.rows[0]?.cliente_id || 'cliente-demo';
+    res.json({
+      cliente_id: clienteId,
+      nombre_cliente: clienteId === 'cliente-demo' ? 'Cliente demo' : clienteId,
+      gatos: beacons.rows,
+      gateways: gateways.rows.map(gateway => ({
+        ...gateway,
+        nombre: gateway.nombre || gateway.nombre_zona || 'Gateway',
+        bateria: null
+      })),
+      gato_principal: config.rows[0]?.nombre || process.env.CAT_NAME || 'Michi'
+    });
+  } catch (err) {
+    console.error('[ERROR] /api/cuenta:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/beacons', async (req, res) => {
   const { mac, nombre_mascota, nombre, icono, mascota_id, asignado = true } = req.body || {};
   if (!mac) return res.status(400).json({ error: 'La MAC es obligatoria.' });
@@ -834,7 +908,7 @@ app.delete('/api/anomalias/:id', async (req, res) => {
   if (req.body?.confirmar !== true) return res.status(400).json({ error: 'Confirmación requerida.' });
   try {
     const { rowCount } = await pool.query(
-      'DELETE FROM anomalias WHERE id = $1 AND mac = $2',
+      'DELETE FROM anomalias WHERE id = $1 AND UPPER(mac) = UPPER($2)',
       [req.params.id, process.env.TARGET_MAC || 'dd:88:00:00:3e:15']
     );
     if (!rowCount) return res.status(404).json({ error: 'Alerta no encontrada.' });
@@ -850,7 +924,7 @@ app.get('/api/rutina', async (req, res) => {
          SELECT nombre_zona, cambiado_en,
                 LEAD(cambiado_en) OVER (ORDER BY cambiado_en) AS siguiente
          FROM historial_zona
-         WHERE mac = $1
+         WHERE UPPER(mac) = UPPER($1)
        ),
        segmentos AS (
          SELECT nombre_zona,
@@ -902,7 +976,7 @@ app.get('/api/rutina-comparacion', async (req, res) => {
          SELECT nombre_zona, cambiado_en,
                 LEAD(cambiado_en) OVER (ORDER BY cambiado_en) AS siguiente
          FROM historial_zona
-         WHERE mac = $1
+         WHERE UPPER(mac) = UPPER($1)
            AND (cambiado_en AT TIME ZONE 'America/Bogota')::date =
                (now() AT TIME ZONE 'America/Bogota')::date
        )
@@ -936,7 +1010,7 @@ app.get('/api/rutina-periodo', async (req, res) => {
          SELECT nombre_zona, cambiado_en,
                 LEAD(cambiado_en) OVER (ORDER BY cambiado_en) AS siguiente
          FROM historial_zona
-         WHERE mac = $1
+         WHERE UPPER(mac) = UPPER($1)
        )
        SELECT (cambiado_en AT TIME ZONE 'America/Bogota')::date AS fecha,
               nombre_zona,
@@ -977,7 +1051,7 @@ app.get('/api/historial-hora/:fecha/:hora', async (req, res) => {
          SELECT nombre_zona, cambiado_en,
                 LEAD(cambiado_en) OVER (ORDER BY cambiado_en) AS siguiente
          FROM historial_zona
-         WHERE mac = $1
+         WHERE UPPER(mac) = UPPER($1)
        )
        SELECT nombre_zona, cambiado_en,
               LEAST(COALESCE(siguiente, now()), (($2::date + (($3 + 1) || ' hours')::interval) AT TIME ZONE 'America/Bogota')) AS fin
@@ -1005,7 +1079,7 @@ app.get('/api/historial-dia/:fecha', async (req, res) => {
          SELECT nombre_zona, cambiado_en,
                 LEAD(cambiado_en) OVER (ORDER BY cambiado_en) AS siguiente
          FROM historial_zona
-         WHERE mac = $1
+         WHERE UPPER(mac) = UPPER($1)
        )
        SELECT nombre_zona, cambiado_en,
               LEAST(COALESCE(siguiente, now()), (($2::date + interval '1 day') AT TIME ZONE 'America/Bogota')) AS fin
@@ -1041,7 +1115,7 @@ app.get('/api/estadisticas', async (req, res) => {
          SELECT nombre_zona, cambiado_en,
                 LEAD(cambiado_en) OVER (ORDER BY cambiado_en) AS siguiente
          FROM historial_zona
-         WHERE mac = $1
+         WHERE UPPER(mac) = UPPER($1)
        ),
        segmentos AS (
          SELECT nombre_zona,
@@ -1064,7 +1138,7 @@ app.get('/api/estadisticas', async (req, res) => {
       [process.env.TARGET_MAC || 'dd:88:00:00:3e:15', modo, zona, desplazamiento]
     );
     const { rows: config } = await pool.query(
-      'SELECT nombre FROM gato_config WHERE mac = $1',
+      'SELECT nombre FROM gato_config WHERE UPPER(mac) = UPPER($1)',
       [process.env.TARGET_MAC || 'dd:88:00:00:3e:15']
     );
     const { rows: periodo } = await pool.query(
@@ -1090,14 +1164,19 @@ app.get('/api/perfil', async (req, res) => {
     const mac = process.env.TARGET_MAC || 'dd:88:00:00:3e:15';
     const [estado, zonas, rutina, config] = await Promise.all([
       pool.query(
-        `SELECT nombre_zona, actualizado_en FROM estado_actual WHERE mac = $1`,
+        `SELECT nombre_zona, actualizado_en
+         FROM estado_actual
+         WHERE UPPER(mac) = UPPER($1)
+         ORDER BY actualizado_en DESC NULLS LAST
+         LIMIT 1`,
         [mac]
       ),
       pool.query(`SELECT nombre_zona FROM zonas ORDER BY nombre_zona`),
       pool.query(
         `SELECT COUNT(DISTINCT franja_horaria)::int AS franjas,
                 COALESCE(SUM(tiempo_total_min), 0)::numeric(10,1) AS minutos
-         FROM rutinas_patron WHERE mac = $1 AND dia_tipo = 'todos'`,
+         FROM rutinas_patron
+         WHERE UPPER(mac) = UPPER($1) AND dia_tipo = 'todos'`,
         [mac]
       ),
       pool.query('SELECT * FROM gato_config WHERE mac = $1', [mac]),

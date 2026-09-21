@@ -1,26 +1,170 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#8f4e00">
-  <title>GatoGuard - Perfil</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/ui-polish.css">
+  <meta name="theme-color" content="#0f766e">
+  <title>GatoGuard - Cuenta y equipos</title>
   <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined&family=Lexend:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>body{visibility:hidden;font-family:Arial,sans-serif}body.ui-ready{visibility:visible}</style>
-  <script>tailwind.config={theme:{extend:{colors:{surface:"#f3fbfd",primary:"#8f4e00","primary-container":"#ff9f43","on-surface":"#151d1f","on-surface-variant":"#544437","surface-container-low":"#edf5f7"},fontFamily:{headline:["Lexend"],body:["Quicksand"]}}}}</script>
-</head>
-<body class="min-h-screen bg-surface pb-24 text-on-surface font-body">
-  <header class="fixed top-0 z-50 flex w-full items-center justify-between bg-surface px-5 py-4 shadow-sm"><a href="index.html" class="text-primary"><span class="material-symbols-outlined">arrow_back</span></a><h1 class="font-headline text-xl font-bold text-primary">Perfil</h1><span class="w-6"></span></header>
-  <main class="mx-auto max-w-2xl space-y-5 px-5 pt-24">
-    <section class="flex items-center gap-4 rounded-2xl bg-white p-5 shadow-sm"><div class="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-primary-container/40"><img id="foto" class="hidden h-full w-full object-cover" alt="Foto de Michi"><span id="icono-foto" class="material-symbols-outlined text-5xl text-primary">pets</span></div><div><h2 id="nombre-titulo" class="font-headline text-3xl font-semibold">Michi</h2><p id="mac" class="text-sm text-on-surface-variant">Cargando dispositivo...</p><p id="zona" class="mt-1 text-sm text-on-surface-variant"></p></div></section>
-    <section class="rounded-2xl bg-white p-5 shadow-sm"><h2 class="font-headline text-xl font-semibold">Datos de Michi</h2><p class="mb-4 mt-1 text-sm text-on-surface-variant">Actualiza únicamente la información básica de tu gato.</p><form id="config-gato" class="grid gap-4"><label class="text-sm">Nombre<input name="nombre" required class="mt-1 w-full rounded-xl border-surface-variant"></label><label class="text-sm">Edad (años)<input name="edad_anios" type="number" min="0" step="0.1" class="mt-1 w-full rounded-xl border-surface-variant"></label><label class="text-sm">Peso (kg)<input name="peso_kg" type="number" min="0" step="0.1" class="mt-1 w-full rounded-xl border-surface-variant"></label><label class="text-sm">Foto (URL)<input name="foto_url" type="url" class="mt-1 w-full rounded-xl border-surface-variant"></label><div class="flex items-center gap-3"><button class="rounded-xl bg-primary px-4 py-2 text-white">Guardar</button><span id="mensaje" class="text-sm text-secondary"></span></div></form></section>
-    <section class="rounded-2xl bg-white p-5 shadow-sm"><div class="flex items-center justify-between gap-3"><div><h2 class="font-headline text-xl font-semibold">Dispositivos</h2><p class="mt-1 text-sm text-on-surface-variant">Gestiona gateways M5Stack y beacons.</p></div><a href="dispositivos.html" class="rounded-xl bg-primary px-4 py-2 text-white">Abrir</a></div></section>
-  </main>
-<nav class="fixed bottom-0 left-0 z-50 flex w-full justify-around rounded-t-xl bg-surface px-2 py-2 shadow-[0px_-4px_20px_rgba(0,0,0,0.05)] md:hidden"><a class="flex flex-col items-center p-2 text-on-surface-variant" href="index.html"><span class="material-symbols-outlined">home</span><span class="text-xs">Home</span></a><a class="flex flex-col items-center p-2 text-on-surface-variant" href="estadisticas.html"><span class="material-symbols-outlined">analytics</span><span class="text-xs">Estadísticas</span></a><a class="flex flex-col items-center p-2 text-on-surface-variant" href="calendario.html"><span class="material-symbols-outlined">calendar_month</span><span class="text-xs">Agenda</span></a><a class="flex flex-col items-center p-2 text-on-surface-variant" href="dispositivos.html"><span class="material-symbols-outlined">wifi_tethering</span><span class="text-xs">Dispositivos</span></a><a class="flex flex-col items-center rounded-full bg-primary-container px-3 py-1" href="perfil.html"><span class="material-symbols-outlined">pets</span><span class="text-xs">Perfil</span></a></nav>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@400;500;600&family=Lexend:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script>
-    const $=s=>document.querySelector(s); const form=$('#config-gato');
-    async function cargar(){const [perfilRes,configRes]=await Promise.all([fetch('/api/perfil?t='+Date.now(),{cache:'no-store'}),fetch('/api/configuracion-gato?t='+Date.now(),{cache:'no-store'})]);const perfil=await perfilRes.json(),config=await configRes.json();$('#nombre-titulo').textContent=perfil.nombre;$('#mac').textContent=`Beacon ${perfil.mac}`;$('#zona').textContent=perfil.zona_actual?`Última zona: ${perfil.zona_actual}`:'Sin ubicación confirmada';for(const campo of form.elements){if(campo.name&&config[campo.name]!==null&&config[campo.name]!==undefined)campo.value=config[campo.name]}if(config.foto_url){$('#foto').src=config.foto_url;$('#foto').classList.remove('hidden');$('#icono-foto').classList.add('hidden')}} cargar().catch(console.error);
-    form.addEventListener('submit',async e=>{e.preventDefault();const datos=Object.fromEntries(new FormData(form).entries());const res=await fetch('/api/configuracion-gato',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(datos)});$('#mensaje').textContent=res.ok?'Guardado.':'No se pudo guardar.';if(res.ok)$('#nombre-titulo').textContent=datos.nombre});
-  </script><script>window.addEventListener('load',()=>document.body.classList.add('ui-ready'));setTimeout(()=>document.body.classList.add('ui-ready'),1500)</script>
-<script src="/pwa.js"></script>
+    tailwind.config = {
+      theme: { extend: {
+        colors: {
+          surface: '#f5fbfa', ink: '#173231', muted: '#58716f',
+          teal: '#0f766e', 'teal-soft': '#d7f3ee', coral: '#e76f51',
+          'coral-soft': '#ffe4dc', line: '#dcebe8'
+        },
+        fontFamily: { headline: ['Lexend'], body: ['Quicksand'] }
+      }}
+    };
+  </script>
+  <style>
+    body { visibility: hidden; }
+    body.ui-ready { visibility: visible; }
+    .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24; }
+    :focus-visible { outline: 3px solid #e76f51; outline-offset: 3px; }
+  </style>
+</head>
+<body class="min-h-screen bg-surface pb-24 font-body text-ink">
+  <header class="sticky top-0 z-40 border-b border-line/80 bg-surface/95 px-5 py-4 backdrop-blur">
+    <div class="mx-auto flex max-w-5xl items-center justify-between">
+      <a href="index.html" class="inline-flex h-10 w-10 items-center justify-center rounded-full bg-teal-soft text-teal" aria-label="Volver al inicio">
+        <span class="material-symbols-outlined">arrow_back</span>
+      </a>
+      <h1 class="font-headline text-lg font-semibold text-teal">Cuenta y equipos</h1>
+      <span class="h-10 w-10"></span>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-5xl space-y-6 px-5 py-7">
+    <section class="rounded-3xl bg-teal px-6 py-7 text-white shadow-[0_12px_32px_rgba(15,118,110,.18)]">
+      <div class="flex flex-wrap items-end justify-between gap-5">
+        <div>
+          <p class="mb-2 text-sm font-semibold text-teal-soft">Tu espacio GatoGuard</p>
+          <h2 id="nombre-cliente" class="font-headline text-3xl font-semibold">Cargando cuenta…</h2>
+          <p id="identificador-cliente" class="mt-2 text-sm text-teal-soft">Preparando resumen</p>
+        </div>
+        <span class="material-symbols-outlined text-6xl text-teal-soft">home_health</span>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <article class="rounded-2xl border border-line bg-white p-4">
+        <span class="material-symbols-outlined text-teal">pets</span>
+        <p id="total-gatos" class="mt-3 font-headline text-2xl font-semibold">—</p>
+        <p class="text-sm text-muted">Gatos registrados</p>
+      </article>
+      <article class="rounded-2xl border border-line bg-white p-4">
+        <span class="material-symbols-outlined text-teal">sensors</span>
+        <p id="total-gateways" class="mt-3 font-headline text-2xl font-semibold">—</p>
+        <p class="text-sm text-muted">Gateways</p>
+      </article>
+      <article class="rounded-2xl border border-line bg-white p-4">
+        <span class="material-symbols-outlined text-teal">wifi</span>
+        <p id="total-online" class="mt-3 font-headline text-2xl font-semibold">—</p>
+        <p class="text-sm text-muted">Gateways en línea</p>
+      </article>
+      <article class="rounded-2xl border border-line bg-white p-4">
+        <span class="material-symbols-outlined text-coral">battery_unknown</span>
+        <p class="mt-3 font-headline text-lg font-semibold">Sin datos</p>
+        <p class="text-sm text-muted">Batería del equipo</p>
+      </article>
+    </section>
+
+    <section>
+      <div class="mb-3 flex items-end justify-between gap-3">
+        <div>
+          <h2 class="font-headline text-xl font-semibold">Mis gatos</h2>
+          <p class="mt-1 text-sm text-muted">Beacons asignados a tus mascotas.</p>
+        </div>
+        <a href="dispositivos.html" class="text-sm font-semibold text-teal underline underline-offset-4">Gestionar</a>
+      </div>
+      <div id="gatos-lista" class="grid gap-3 md:grid-cols-2">
+        <p class="rounded-2xl border border-dashed border-line bg-white p-5 text-sm text-muted">Cargando mascotas…</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="mb-3 flex items-end justify-between gap-3">
+        <div>
+          <h2 class="font-headline text-xl font-semibold">Gateways</h2>
+          <p class="mt-1 text-sm text-muted">Puntos que reciben la señal de los collares.</p>
+        </div>
+        <a href="dispositivos.html" class="text-sm font-semibold text-teal underline underline-offset-4">Configurar</a>
+      </div>
+      <div id="gateways-lista" class="grid gap-3 md:grid-cols-2">
+        <p class="rounded-2xl border border-dashed border-line bg-white p-5 text-sm text-muted">Cargando gateways…</p>
+      </div>
+    </section>
+
+    <section class="rounded-2xl border border-coral/20 bg-coral-soft p-5">
+      <div class="flex items-start gap-3">
+        <span class="material-symbols-outlined text-coral">info</span>
+        <div>
+          <h2 class="font-headline font-semibold">Sobre la batería</h2>
+          <p class="mt-1 text-sm leading-6 text-ink/80">Tus gateways todavía no envían el nivel de batería. Cuando el firmware lo reporte, aparecerá aquí automáticamente.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="fixed bottom-0 left-0 z-50 flex w-full justify-around border-t border-line bg-surface px-2 py-2 shadow-[0_-8px_24px_rgba(23,50,49,.07)] md:hidden">
+    <a class="flex flex-col items-center p-2 text-muted" href="index.html"><span class="material-symbols-outlined">home</span><span class="text-xs">Inicio</span></a>
+    <a class="flex flex-col items-center p-2 text-muted" href="estadisticas.html"><span class="material-symbols-outlined">analytics</span><span class="text-xs">Estadísticas</span></a>
+    <a class="flex flex-col items-center p-2 text-muted" href="calendario.html"><span class="material-symbols-outlined">calendar_month</span><span class="text-xs">Agenda</span></a>
+    <a class="flex flex-col items-center p-2 text-muted" href="dispositivos.html"><span class="material-symbols-outlined">wifi_tethering</span><span class="text-xs">Equipos</span></a>
+    <a class="flex flex-col items-center rounded-full bg-teal-soft px-3 py-1 text-teal" href="perfil.html"><span class="material-symbols-outlined">account_circle</span><span class="text-xs">Cuenta</span></a>
+  </nav>
+
+  <script>
+    const $ = selector => document.querySelector(selector);
+    const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    const duracion = fecha => {
+      if (!fecha) return 'Fecha de alta no disponible';
+      const dias = Math.max(0, Math.floor((Date.now() - new Date(fecha).getTime()) / 86400000));
+      return dias === 0 ? 'En uso desde hoy' : `En uso desde hace ${dias} ${dias === 1 ? 'día' : 'días'}`;
+    };
+    function render(data) {
+      const gatos = data.gatos || [];
+      const gateways = data.gateways || [];
+      $('#nombre-cliente').textContent = data.nombre_cliente || 'Mi cuenta';
+      $('#identificador-cliente').textContent = `Cuenta ${data.cliente_id || 'sin identificador'}`;
+      $('#total-gatos').textContent = gatos.length;
+      $('#total-gateways').textContent = gateways.length;
+      $('#total-online').textContent = gateways.filter(gateway => gateway.online).length;
+      $('#gatos-lista').innerHTML = gatos.length ? gatos.map(gato => `
+        <article class="flex items-center gap-4 rounded-2xl border border-line bg-white p-4">
+          <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-soft text-teal"><span class="material-symbols-outlined">pets</span></span>
+          <div class="min-w-0"><h3 class="font-headline font-semibold">${escapeHtml(gato.nombre)}</h3><p class="truncate text-sm text-muted">${escapeHtml(gato.mac)}</p><p class="mt-1 text-xs text-muted">${duracion(gato.created_at)}</p></div>
+        </article>`).join('') : '<p class="rounded-2xl border border-dashed border-line bg-white p-5 text-sm text-muted">Aún no hay mascotas asignadas.</p>';
+      $('#gateways-lista').innerHTML = gateways.length ? gateways.map(gateway => `
+        <article class="rounded-2xl border border-line bg-white p-4">
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex items-center gap-3"><span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-soft text-teal"><span class="material-symbols-outlined">${escapeHtml(gateway.icono || 'sensors')}</span></span><div><h3 class="font-headline font-semibold">${escapeHtml(gateway.nombre)}</h3><p class="text-xs text-muted">${escapeHtml(gateway.device_id)}</p></div></div>
+            <span class="${gateway.online ? 'bg-teal-soft text-teal' : 'bg-slate-100 text-muted'} rounded-full px-2.5 py-1 text-xs font-semibold">${gateway.online ? 'En línea' : 'Sin conexión'}</span>
+          </div>
+          <div class="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-3 text-sm"><div><p class="text-xs text-muted">Batería</p><p class="font-semibold">${gateway.bateria == null ? 'Sin datos' : `${gateway.bateria}%`}</p></div><div><p class="text-xs text-muted">Tiempo en uso</p><p class="font-semibold">${duracion(gateway.created_at)}</p></div></div>
+        </article>`).join('') : '<p class="rounded-2xl border border-dashed border-line bg-white p-5 text-sm text-muted">Aún no hay gateways configurados.</p>';
+    }
+    async function cargar() {
+      try {
+        const response = await fetch(`/api/cuenta?t=${Date.now()}`, { cache: 'no-store' });
+        if (!response.ok) throw new Error('No se pudo cargar el resumen.');
+        render(await response.json());
+      } catch (error) {
+        $('#gatos-lista').innerHTML = '<p class="rounded-2xl border border-coral/30 bg-coral-soft p-5 text-sm text-ink">No se pudo cargar la cuenta. Comprueba la conexión y vuelve a intentarlo.</p>';
+        $('#gateways-lista').innerHTML = '';
+        console.error(error);
+      }
+    }
+    cargar();
+    window.addEventListener('load', () => document.body.classList.add('ui-ready'));
+    setTimeout(() => document.body.classList.add('ui-ready'), 1500);
+  </script>
+  <script src="/motion.js"></script>
+  <script src="/pwa.js"></script>
 </body>
 </html>

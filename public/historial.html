@@ -4,7 +4,8 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <link rel="manifest" href="/manifest.webmanifest"/>
-<meta name="theme-color" content="#8f4e00"/>
+<link rel="stylesheet" href="/ui-polish.css"/>
+<meta name="theme-color" content="#0f766e"/>
 <title>GatoGuard - Historial de Movimientos</title>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
@@ -19,13 +20,13 @@
                     "primary-fixed": "#ffdcc2", "on-tertiary-fixed-variant": "#004b6f", "surface": "#f3fbfd",
                     "on-tertiary-fixed": "#001e2f", "on-secondary-fixed": "#00201a", "surface-container-lowest": "#ffffff",
                     "on-secondary-container": "#007261", "tertiary-fixed": "#c9e6ff", "tertiary-fixed-dim": "#8aceff",
-                    "surface-tint": "#8f4e00", "surface-variant": "#dce4e6", "inverse-on-surface": "#eaf2f4",
+                    "surface-tint": "#0f766e", "surface-variant": "#dce9e7", "inverse-on-surface": "#eaf5f3",
                     "secondary": "#006b5b", "surface-container-low": "#edf5f7", "background": "#f3fbfd",
-                    "outline": "#877365", "inverse-primary": "#ffb77a", "tertiary": "#006491", "primary": "#8f4e00",
+                    "outline": "#6f8885", "inverse-primary": "#8edbd1", "tertiary": "#006491", "primary": "#0f766e",
                     "surface-container": "#e7eff1", "on-tertiary-container": "#004c6f", "on-surface-variant": "#544437",
                     "tertiary-container": "#6fbef4", "secondary-fixed": "#7cf8dd", "secondary-fixed-dim": "#5ddbc1",
                     "surface-container-highest": "#dce4e6", "on-tertiary": "#ffffff", "on-surface": "#151d1f",
-                    "primary-container": "#ff9f43", "surface-container-high": "#e2eaec", "inverse-surface": "#2a3234",
+                    "primary-container": "#d7f3ee", "surface-container-high": "#e1efec", "inverse-surface": "#203c39",
                     "error": "#ba1a1a", "on-primary-fixed-variant": "#6d3a00", "on-error-container": "#93000a",
                     "on-primary-container": "#6d3a00", "on-error": "#ffffff", "on-secondary": "#ffffff",
                     "on-secondary-fixed-variant": "#005144", "surface-bright": "#f3fbfd", "primary-fixed-dim": "#ffb77a",
@@ -98,7 +99,7 @@
 <nav class="md:hidden bg-surface shadow-[0px_-4px_20px_rgba(0,0,0,0.05)] fixed bottom-0 left-0 w-full z-50 rounded-t-xl flex justify-around items-center px-4 py-2">
   <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="index.html">
     <span class="material-symbols-outlined mb-1 text-[24px]">home</span>
-    <span class="text-label-md font-label-md">Home</span>
+    <span class="text-label-md font-label-md">Inicio</span>
   </a>
   <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="estadisticas.html"><span class="material-symbols-outlined mb-1 text-[24px]">analytics</span><span class="text-xs">Estadísticas</span></a>
   <a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1 scale-90 transition-all duration-150" href="calendario.html"><span class="material-symbols-outlined mb-1 text-[24px]" style="font-variation-settings: 'FILL' 1;">calendar_month</span><span class="text-xs">Agenda</span></a>
@@ -107,8 +108,8 @@
     <span class="text-label-md font-label-md">Dispositivos</span>
   </a>
   <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="perfil.html">
-    <span class="material-symbols-outlined mb-1 text-[24px]">pets</span>
-    <span class="text-label-md font-label-md">Perfil</span>
+    <span class="material-symbols-outlined mb-1 text-[24px]">account_circle</span>
+    <span class="text-label-md font-label-md">Cuenta</span>
   </a>
 </nav>
 
@@ -235,6 +236,7 @@ $('#fecha-especifica').addEventListener('change', () => {
 cargarHistorial();
 </script>
 <script>window.addEventListener('load', () => document.body.classList.add('ui-ready')); setTimeout(() => document.body.classList.add('ui-ready'), 1500);</script>
+<script src="/motion.js"></script>
 <script src="/pwa.js"></script>
 </body>
 </html>

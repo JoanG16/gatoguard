@@ -1,0 +1,136 @@
+/* Shared interaction details for the installed/mobile experience. */
+:root {
+  --gg-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --gg-duration: 220ms;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body.gg-app-view {
+  animation: gg-app-enter 280ms var(--gg-ease-out) both;
+}
+
+body.gg-app-view-leaving {
+  animation: gg-app-leave 160ms ease-in both;
+  pointer-events: none;
+}
+
+@keyframes gg-app-enter {
+  from { opacity: 0; transform: translate3d(14px, 0, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes gg-app-leave {
+  to { opacity: 0; transform: translate3d(-10px, 0, 0); }
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 240ms;
+  animation-timing-function: var(--gg-ease-out);
+}
+
+::view-transition-old(root) {
+  animation-name: gg-page-out;
+}
+
+::view-transition-new(root) {
+  animation-name: gg-page-in;
+}
+
+@keyframes gg-page-out {
+  to { opacity: 0; transform: translateX(-12px); }
+}
+
+@keyframes gg-page-in {
+  from { opacity: 0; transform: translateX(12px); }
+}
+
+button,
+a {
+  touch-action: manipulation;
+}
+
+button,
+a,
+article,
+dialog,
+input,
+textarea,
+select {
+  transition:
+    transform var(--gg-duration) var(--gg-ease-out),
+    opacity var(--gg-duration) ease,
+    box-shadow var(--gg-duration) ease,
+    background-color var(--gg-duration) ease,
+    border-color var(--gg-duration) ease,
+    color var(--gg-duration) ease;
+}
+
+button:active,
+a:active {
+  transform: scale(0.98);
+  transition-duration: 120ms;
+}
+
+article:hover {
+  transform: translateY(-2px);
+}
+
+dialog[open] {
+  animation: gg-dialog-in 220ms var(--gg-ease-out) both;
+}
+
+dialog::backdrop {
+  animation: gg-backdrop-in 220ms ease both;
+  background: rgb(23 50 49 / 28%);
+}
+
+@keyframes gg-dialog-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes gg-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+input,
+textarea,
+select {
+  font-size: 16px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  button:hover,
+  a:hover {
+    transition-duration: 180ms;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  article:hover,
+  button:active,
+  a:active,
+  body.gg-app-view,
+  body.gg-app-view-leaving {
+    transform: none !important;
+    animation: none !important;
+  }
+}
+
+@supports (padding: env(safe-area-inset-bottom)) {
+  nav.fixed.bottom-0 {
+    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+  }
+}

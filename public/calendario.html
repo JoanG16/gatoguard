@@ -4,12 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#8f4e00">
+  <link rel="stylesheet" href="/ui-polish.css">
+  <meta name="theme-color" content="#0f766e">
   <title>GatoGuard - Agenda</title>
   <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined&family=Lexend:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>body { visibility: hidden; font-family: Arial, sans-serif; } body.ui-ready { visibility: visible; }</style>
-  <script>tailwind.config={theme:{extend:{colors:{surface:"#f3fbfd","primary":"#8f4e00","primary-container":"#ff9f43","on-surface":"#151d1f","on-surface-variant":"#544437","surface-container-lowest":"#ffffff","surface-container-low":"#edf5f7","surface-variant":"#dce4e6","error":"#ba1a1a","error-container":"#ffdad6","on-error-container":"#93000a"},fontFamily:{headline:["Lexend"],body:["Quicksand"]}}}}</script>
+  <style>body { visibility: hidden; font-family: Quicksand, sans-serif; } body.ui-ready { visibility: visible; }:focus-visible{outline:3px solid #e76f51;outline-offset:3px}</style>
+  <script>tailwind.config={theme:{extend:{colors:{surface:"#f5fbfa","primary":"#0f766e","primary-container":"#d7f3ee","on-surface":"#173231","on-surface-variant":"#47615f","surface-container-lowest":"#ffffff","surface-container-low":"#eaf5f3","surface-variant":"#dce9e7","error":"#ba1a1a","error-container":"#ffe0dc","on-error-container":"#8e2118"},fontFamily:{headline:["Lexend"],body:["Quicksand"]}}}}</script>
 </head>
 <body class="bg-surface text-on-surface font-body min-h-screen pb-24">
   <header class="fixed top-0 z-50 w-full bg-surface shadow-sm px-5 py-4 flex justify-between items-center">
@@ -36,13 +37,16 @@
     <section id="panel-dia" class="rounded-2xl bg-white p-5 shadow-sm hidden">
       <div class="mb-3 flex items-center justify-between">
         <h2 id="titulo-dia" class="font-headline text-xl font-semibold">Día</h2>
-        <button id="agregar-recordatorio" class="flex items-center gap-1 rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-white"><span class="material-symbols-outlined text-base">add_alert</span>Recordatorio</button>
+        <div class="flex items-center gap-2">
+          <a href="alertas-archivadas.html" class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-surface-variant text-on-surface-variant transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-md active:scale-95" title="Ver alertas archivadas" aria-label="Ver alertas archivadas"><span class="material-symbols-outlined">archive</span></a>
+          <button id="agregar-recordatorio" class="flex items-center gap-1 rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-white transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-md active:scale-95"><span class="material-symbols-outlined text-base">add_alert</span>Recordatorio</button>
+        </div>
       </div>
 
       <div class="mb-4 flex gap-2 rounded-xl bg-surface-container-low p-1 text-sm font-semibold">
-        <button data-tab="alertas" class="tab-dia flex-1 rounded-lg py-2">Alertas</button>
-        <button data-tab="historial" class="tab-dia flex-1 rounded-lg py-2">Historial</button>
-        <button data-tab="recordatorios" class="tab-dia flex-1 rounded-lg py-2">Recordatorios</button>
+        <button data-tab="alertas" class="tab-dia flex-1 rounded-lg py-2 transition-all duration-200 ease-out active:scale-95">Alertas</button>
+        <button data-tab="historial" class="tab-dia flex-1 rounded-lg py-2 transition-all duration-200 ease-out active:scale-95">Historial</button>
+        <button data-tab="recordatorios" class="tab-dia flex-1 rounded-lg py-2 transition-all duration-200 ease-out active:scale-95">Recordatorios</button>
       </div>
 
       <div id="tab-alertas">
@@ -100,17 +104,19 @@
   </dialog>
 
   <nav class="fixed bottom-0 left-0 z-50 flex w-full justify-around rounded-t-xl bg-surface px-2 py-2 shadow-[0px_-4px_20px_rgba(0,0,0,0.05)] md:hidden">
-    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="index.html"><span class="material-symbols-outlined">home</span><span class="text-xs">Home</span></a>
+    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="index.html"><span class="material-symbols-outlined">home</span><span class="text-xs">Inicio</span></a>
     <a class="flex flex-col items-center p-2 text-on-surface-variant" href="estadisticas.html"><span class="material-symbols-outlined">analytics</span><span class="text-xs">Estadísticas</span></a>
     <a class="flex flex-col items-center rounded-full bg-primary-container px-3 py-1 text-on-primary-container" href="calendario.html"><span class="material-symbols-outlined">calendar_month</span><span class="text-xs">Agenda</span></a>
     <a class="flex flex-col items-center p-2 text-on-surface-variant" href="dispositivos.html"><span class="material-symbols-outlined">wifi_tethering</span><span class="text-xs">Dispositivos</span></a>
-    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="perfil.html"><span class="material-symbols-outlined">pets</span><span class="text-xs">Perfil</span></a>
+    <a class="flex flex-col items-center p-2 text-on-surface-variant" href="perfil.html"><span class="material-symbols-outlined">account_circle</span><span class="text-xs">Cuenta</span></a>
   </nav>
 
   <script>
     const $ = s => document.querySelector(s);
     const hoy = new Date();
-    let vista = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    const fechaInicial = new URLSearchParams(location.search).get('fecha');
+    const fechaInicialValida = /^\d{4}-\d{2}-\d{2}$/.test(fechaInicial || '') ? new Date(`${fechaInicial}T00:00:00`) : null;
+    let vista = fechaInicialValida ? new Date(fechaInicialValida.getFullYear(), fechaInicialValida.getMonth(), 1) : new Date(hoy.getFullYear(), hoy.getMonth(), 1);
     let diaSeleccionado = null;
     let alertasPorDia = new Map();
     let recordatoriosPorDia = new Map();
@@ -191,7 +197,7 @@
         const tieneRecordatorio = recordatoriosPorDia.has(clave);
         const boton = document.createElement('button');
         boton.type = 'button';
-        boton.className = `relative flex h-11 flex-col items-center justify-center rounded-xl text-sm font-semibold ${clave === hoyClave ? 'ring-2 ring-primary' : ''} ${clave === diaSeleccionado ? 'bg-primary text-white' : 'bg-surface-container-low text-on-surface'}`;
+        boton.className = `relative flex h-11 flex-col items-center justify-center rounded-xl text-sm font-semibold transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-md active:scale-95 ${clave === hoyClave ? 'ring-2 ring-primary' : ''} ${clave === diaSeleccionado ? 'bg-primary text-white' : 'bg-surface-container-low text-on-surface'}`;
         boton.innerHTML = `<span>${d}</span><span class="absolute bottom-1 flex gap-0.5">${tieneAlertas ? '<span class="h-1.5 w-1.5 rounded-full bg-error"></span>' : ''}${tieneRecordatorio ? '<span class="h-1.5 w-1.5 rounded-full bg-primary-container"></span>' : ''}</span>`;
         boton.addEventListener('click', () => seleccionarDia(clave));
         grid.appendChild(boton);
@@ -205,7 +211,8 @@
         <div class="flex-1"><div class="flex justify-between gap-2"><h3 class="font-semibold text-sm">${nivel(alerta)}</h3>${revisada ? '<span class="text-xs text-secondary">Revisada</span>' : ''}</div>
         <p class="text-sm mt-1">${alerta.descripcion}</p>
         <p class="text-xs text-on-surface-variant mt-1">${horaCorta(alerta.detectada_en)}</p>
-        ${alerta.comentario ? `<p class="mt-2 text-xs bg-white/70 rounded-lg p-2">Nota: ${alerta.comentario}</p>` : ''}</div></div>
+        ${alerta.comentario ? `<p class="mt-2 text-xs bg-white/70 rounded-lg p-2">Nota: ${alerta.comentario}</p>` : ''}</div>
+        </div>
       </article>`;
     }
 
@@ -224,7 +231,6 @@
       $('#alertas-dia').innerHTML = alertasActuales.length
         ? alertasActuales.map(tarjetaAlerta).join('')
         : '<p class="text-sm text-on-surface-variant">Sin alertas ese día.</p>';
-
       const historial = historialRes.ok ? await historialRes.json() : [];
       $('#historial-dia').innerHTML = historial.length
         ? historial.map(e => `<article class="flex items-center gap-3 rounded-xl border border-surface-variant p-3">
@@ -264,14 +270,14 @@
       if (!alerta) return;
       alertaSeleccionada = alerta;
       const revisada = Boolean(alerta.revisada_en);
-      contenidoDetalle.innerHTML = `<div class="flex items-start justify-between gap-3"><div><p class="text-sm text-on-surface-variant">${nivel(alerta)}</p><h2 class="text-2xl font-semibold">Detalle de la alerta</h2></div><button type="button" data-detail-action="cerrar" class="rounded-full p-1 hover:bg-surface-container-low"><span class="material-symbols-outlined">close</span></button></div>
+      contenidoDetalle.innerHTML = `<div class="flex items-start justify-between gap-3"><div><p class="text-sm text-on-surface-variant">${nivel(alerta)}</p><h2 class="text-2xl font-semibold">Detalle de la alerta</h2></div><button type="button" data-detail-action="cerrar" title="Cerrar detalle" aria-label="Cerrar detalle" class="rounded-full p-2 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:bg-surface-container-low hover:shadow-md active:scale-95"><span class="material-symbols-outlined">close</span></button></div>
         <div class="mt-5 space-y-3"><p>${alerta.descripcion}</p><p class="text-sm text-on-surface-variant">Detectada: ${fechaTexto(alerta.detectada_en)}${revisada ? ` · Revisada: ${fechaTexto(alerta.revisada_en)}` : ''}</p>
-        <div class="rounded-lg bg-surface-container-low p-3"><p class="text-sm font-semibold">Nota</p>${alerta.comentario ? `<p class="mt-1">${alerta.comentario}</p><div class="mt-3 flex gap-2"><button type="button" data-detail-action="editar-nota" class="rounded-lg border bg-white px-3 py-2 text-sm">Editar</button><button type="button" data-detail-action="eliminar-nota" class="rounded-lg border border-error bg-white px-3 py-2 text-sm text-error">Eliminar</button></div>` : '<p class="mt-1 text-sm text-on-surface-variant">No hay notas para esta alerta.</p>'}</div></div>
-        <div class="mt-5 flex justify-end gap-2">
-          ${revisada ? '' : `<button type="button" data-detail-action="revisar" class="rounded-lg border px-4 py-2 text-sm">Marcar revisada</button>`}
-          <button type="button" data-detail-action="comentar" class="rounded-lg border px-4 py-2 text-sm">Comentar</button>
-          <button type="button" data-detail-action="borrar" class="rounded-lg border border-error px-4 py-2 text-sm text-error">Borrar</button>
-          <button type="button" data-detail-action="cerrar" class="rounded-lg bg-primary px-4 py-2 text-sm text-white">Cerrar</button>
+        <div class="rounded-lg bg-surface-container-low p-3"><p class="text-sm font-semibold">Nota</p>${alerta.comentario ? `<p class="mt-1">${alerta.comentario}</p><div class="mt-3 flex gap-2"><button type="button" data-detail-action="editar-nota" title="Editar comentario" aria-label="Editar comentario" class="inline-flex h-9 w-9 items-center justify-center rounded-full border bg-white transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-md active:scale-95"><span class="material-symbols-outlined text-base">edit</span></button><button type="button" data-detail-action="eliminar-nota" title="Eliminar comentario" aria-label="Eliminar comentario" class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-error bg-white text-error transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-md active:scale-95"><span class="material-symbols-outlined text-base">delete</span></button></div>` : '<p class="mt-1 text-sm text-on-surface-variant">No hay notas para esta alerta.</p>'}</div></div>
+        <div class="mt-5 flex justify-end gap-2 border-t border-surface-variant pt-4">
+          ${revisada ? '' : `<button type="button" data-detail-action="revisar" title="Marcar como revisada" aria-label="Marcar como revisada" class="inline-flex h-10 w-10 items-center justify-center rounded-full border border-surface-variant text-secondary transition-all duration-200 ease-out hover:-translate-y-0.5 hover:bg-surface-container-low hover:shadow-md active:scale-95"><span class="material-symbols-outlined">done</span></button>`}
+          <button type="button" data-detail-action="comentar" title="Añadir comentario" aria-label="Añadir comentario" class="inline-flex h-10 w-10 items-center justify-center rounded-full border border-surface-variant transition-all duration-200 ease-out hover:-translate-y-0.5 hover:bg-surface-container-low hover:shadow-md active:scale-95"><span class="material-symbols-outlined">comment</span></button>
+          <button type="button" data-detail-action="archivar" title="Archivar alerta" aria-label="Archivar alerta" class="inline-flex h-10 w-10 items-center justify-center rounded-full border border-primary bg-primary-container text-primary transition-all duration-200 ease-out hover:-translate-y-0.5 hover:bg-primary hover:text-white hover:shadow-md active:scale-95"><span class="material-symbols-outlined">archive</span></button>
+          <button type="button" data-detail-action="borrar" title="Borrar alerta" aria-label="Borrar alerta" class="inline-flex h-10 w-10 items-center justify-center rounded-full border border-error text-error transition-all duration-200 ease-out hover:-translate-y-0.5 hover:bg-error-container hover:shadow-md active:scale-95"><span class="material-symbols-outlined">delete</span></button>
         </div>`;
       dialogoDetalle.showModal();
     }
@@ -305,6 +311,14 @@
       if (accion === 'revisar') {
         const res = await fetch(`/api/anomalias/${alertaSeleccionada.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ accion: 'revisar' }) });
         if (!res.ok) { alert('No se pudo marcar como revisada.'); return; }
+        dialogoDetalle.close();
+        await seleccionarDia(diaSeleccionado);
+        await cargarMes();
+        return;
+      }
+      if (accion === 'archivar') {
+        const res = await fetch(`/api/anomalias/${alertaSeleccionada.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ accion: 'archivar' }) });
+        if (!res.ok) { alert('No se pudo archivar la alerta.'); return; }
         dialogoDetalle.close();
         await seleccionarDia(diaSeleccionado);
         await cargarMes();
@@ -345,8 +359,8 @@
       await cargarMes();
     });
 
-    $('#mes-anterior').addEventListener('click', () => { vista = new Date(vista.getFullYear(), vista.getMonth() - 1, 1); cargarMes(); });
-    $('#mes-siguiente').addEventListener('click', () => { vista = new Date(vista.getFullYear(), vista.getMonth() + 1, 1); cargarMes(); });
+    $('#mes-anterior').addEventListener('click', () => { vista = new Date(vista.getFullYear(), vista.getMonth() - 1, 1); window.ggViewTransition(cargarMes); });
+    $('#mes-siguiente').addEventListener('click', () => { vista = new Date(vista.getFullYear(), vista.getMonth() + 1, 1); window.ggViewTransition(cargarMes); });
 
     $('#agregar-recordatorio').addEventListener('click', () => {
       if (!diaSeleccionado) return;
@@ -376,10 +390,13 @@
 
     if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
 
-    cargarMes().catch(console.error);
+    cargarMes().then(() => {
+      if (fechaInicialValida) seleccionarDia(fechaInicial);
+    }).catch(console.error);
     setInterval(() => cargarMes().catch(console.error), 30000);
   </script>
   <script>window.addEventListener('load', () => document.body.classList.add('ui-ready')); setTimeout(() => document.body.classList.add('ui-ready'), 1500);</script>
+<script src="/motion.js"></script>
 <script src="/pwa.js"></script>
 </body>
 </html>

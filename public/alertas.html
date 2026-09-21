@@ -4,12 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#8f4e00">
+  <link rel="stylesheet" href="/ui-polish.css">
+  <meta name="theme-color" content="#0f766e">
   <title>GatoGuard - Alertas</title>
   <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined&family=Lexend:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>body { visibility: hidden; font-family: Arial, sans-serif; } body.ui-ready { visibility: visible; }</style>
-  <script>tailwind.config={theme:{extend:{colors:{surface:"#f3fbfd","primary":"#8f4e00","primary-container":"#ff9f43","on-surface":"#151d1f","on-surface-variant":"#544437","surface-container-lowest":"#ffffff","surface-container-low":"#edf5f7","surface-variant":"#dce4e6","error":"#ba1a1a","error-container":"#ffdad6","on-error-container":"#93000a"},fontFamily:{headline:["Lexend"],body:["Quicksand"]}}}}</script>
+  <style>body { visibility: hidden; font-family: Quicksand, sans-serif; } body.ui-ready { visibility: visible; }:focus-visible{outline:3px solid #e76f51;outline-offset:3px}</style>
+  <script>tailwind.config={theme:{extend:{colors:{surface:"#f5fbfa","primary":"#0f766e","primary-container":"#d7f3ee","on-surface":"#173231","on-surface-variant":"#47615f","surface-container-lowest":"#ffffff","surface-container-low":"#eaf5f3","surface-variant":"#dce9e7","error":"#ba1a1a","error-container":"#ffe0dc","on-error-container":"#8e2118"},fontFamily:{headline:["Lexend"],body:["Quicksand"]}}}}</script>
 </head>
 <body class="bg-surface text-on-surface font-body min-h-screen pb-24">
   <header class="fixed top-0 z-50 w-full bg-surface shadow-sm px-5 py-4 flex justify-between items-center">
@@ -24,7 +25,7 @@
         <input id="hasta" type="date" class="bg-surface-container-low px-3 py-2 rounded-xl shadow-sm text-on-surface font-body border-0 focus:ring-2 focus:ring-primary" aria-label="Hasta">
         <select id="estado" class="bg-surface-container-low px-4 py-2 rounded-xl shadow-sm text-on-surface font-body border-0 focus:ring-2 focus:ring-primary"><option value="">Todas</option><option value="false">No revisadas</option><option value="true">Revisadas</option></select>
         <button id="filtrar" class="bg-primary text-white px-4 py-2 rounded-xl shadow-sm">Filtrar</button>
-        <a href="alertas-archivadas.html" class="bg-surface-container-low px-4 py-2 rounded-xl shadow-sm">Archivadas</a>
+        <a href="alertas-archivadas.html" class="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-surface-container-low shadow-sm" title="Ver alertas archivadas" aria-label="Ver alertas archivadas"><span class="material-symbols-outlined">archive</span></a>
       </div>
       <div id="resumen">Cargando alertas...</div>
     </div>
@@ -52,8 +53,8 @@
     <div id="contenido-detalle" class="p-6 w-[min(90vw,34rem)]"></div>
   </dialog>
   <nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-2 bg-surface shadow-[0px_-4px_20px_rgba(0,0,0,0.05)] rounded-t-xl md:hidden">
-    <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="index.html"><span class="material-symbols-outlined mb-1 text-[24px]">home</span><span class="text-xs">Home</span></a>
-    <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="estadisticas.html"><span class="material-symbols-outlined mb-1 text-[24px]">analytics</span><span class="text-xs">Estadísticas</span></a><a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1 scale-90 transition-all" href="calendario.html"><span class="material-symbols-outlined mb-1 text-[24px]" style="font-variation-settings: 'FILL' 1;">calendar_month</span><span class="text-xs">Agenda</span></a><a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="dispositivos.html"><span class="material-symbols-outlined mb-1 text-[24px]">wifi_tethering</span><span class="text-xs">Dispositivos</span></a><a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="perfil.html"><span class="material-symbols-outlined mb-1 text-[24px]">pets</span><span class="text-xs">Perfil</span></a>
+    <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="index.html"><span class="material-symbols-outlined mb-1 text-[24px]">home</span><span class="text-xs">Inicio</span></a>
+    <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="estadisticas.html"><span class="material-symbols-outlined mb-1 text-[24px]">analytics</span><span class="text-xs">Estadísticas</span></a><a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1 scale-90 transition-all" href="calendario.html"><span class="material-symbols-outlined mb-1 text-[24px]" style="font-variation-settings: 'FILL' 1;">calendar_month</span><span class="text-xs">Agenda</span></a><a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="dispositivos.html"><span class="material-symbols-outlined mb-1 text-[24px]">wifi_tethering</span><span class="text-xs">Dispositivos</span></a>    <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="perfil.html"><span class="material-symbols-outlined mb-1 text-[24px]">account_circle</span><span class="text-xs">Cuenta</span></a>
   </nav>
   <script>
     const lista = document.querySelector('#lista');
@@ -102,7 +103,7 @@
         <div class="flex gap-3"><span class="material-symbols-outlined ${activa ? 'text-error' : 'text-on-surface-variant'}">${activa ? 'warning' : 'check_circle'}</span>
         <div class="flex-1"><div class="flex justify-between gap-2"><h3 class="font-semibold">${estado} ${revisada ? '<span class="text-sm text-secondary">· Revisada</span>' : ''}</h3><span class="text-sm">${nivel(alerta)}</span></div>
         <p class="mt-1">${descripcionVisible(alerta)}</p><p class="text-sm text-on-surface-variant mt-2">${detalleEstado}</p><p class="text-sm text-on-surface-variant mt-1">Detectada: ${fecha(alerta.detectada_en)}${revisada ? ` · Revisada: ${fecha(alerta.revisada_en)}` : ''}</p>${alerta.comentario ? `<p class="mt-2 text-sm bg-white/70 rounded-lg p-2">Nota: ${alerta.comentario}</p>` : ''}
-        <div class="h-10"></div></div></div><div class="absolute bottom-3 right-3 flex gap-2">${revisada ? '' : `<button data-action="revisar" data-id="${alerta.id}" title="Marcar como revisada" aria-label="Marcar como revisada" class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-surface-variant bg-white text-secondary shadow-sm hover:bg-surface-container-low"><span class="material-symbols-outlined text-base">done</span></button>`}<button data-action="comentar" data-id="${alerta.id}" title="Añadir o editar comentario" aria-label="Añadir o editar comentario" class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-surface-variant bg-white shadow-sm hover:bg-surface-container-low"><span class="material-symbols-outlined text-base">comment</span></button><button data-action="archivar" data-id="${alerta.id}" title="Archivar alerta" aria-label="Archivar alerta" class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-surface-variant bg-white shadow-sm hover:bg-surface-container-low"><span class="material-symbols-outlined text-base">archive</span></button><button data-action="borrar" data-id="${alerta.id}" title="Borrar alerta" aria-label="Borrar alerta" class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-error bg-white text-error shadow-sm hover:bg-surface-container-low"><span class="material-symbols-outlined text-base">delete</span></button></div></article>`;
+        <div class="h-10"></div></div></div><div class="absolute bottom-3 right-3 flex gap-2">${revisada ? '' : `<button data-action="revisar" data-id="${alerta.id}" title="Marcar como revisada" aria-label="Marcar como revisada" class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-surface-variant bg-white text-secondary shadow-sm hover:bg-surface-container-low"><span class="material-symbols-outlined text-base">done</span></button>`}<button data-action="comentar" data-id="${alerta.id}" title="Añadir o editar comentario" aria-label="Añadir o editar comentario" class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-surface-variant bg-white shadow-sm hover:bg-surface-container-low"><span class="material-symbols-outlined text-base">comment</span></button><button data-action="archivar" data-id="${alerta.id}" title="Archivar alerta" aria-label="Archivar alerta" class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-primary bg-primary-container text-primary shadow-sm hover:bg-primary hover:text-white"><span class="material-symbols-outlined text-base">archive</span></button><button data-action="borrar" data-id="${alerta.id}" title="Borrar alerta" aria-label="Borrar alerta" class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-error bg-white text-error shadow-sm hover:bg-surface-container-low"><span class="material-symbols-outlined text-base">delete</span></button></div></article>`;
     }
     async function cargar() {
       try {
@@ -224,6 +225,7 @@
     cargar(); setInterval(cargar, 30000);
   </script>
   <script>window.addEventListener('load', () => document.body.classList.add('ui-ready')); setTimeout(() => document.body.classList.add('ui-ready'), 1500);</script>
+<script src="/motion.js"></script>
 <script src="/pwa.js"></script>
 </body>
 </html>

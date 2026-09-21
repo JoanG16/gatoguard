@@ -1,8 +1,18 @@
-const CACHE_NAME = 'gatoguard-shell-v1';
+const CACHE_NAME = 'gatoguard-shell-v2';
 const APP_SHELL = [
   '/',
   '/index.html',
+  '/estadisticas.html',
+  '/calendario.html',
+  '/dispositivos.html',
+  '/perfil.html',
+  '/historial.html',
+  '/alertas.html',
+  '/alertas-archivadas.html',
   '/manifest.webmanifest',
+  '/ui-polish.css',
+  '/motion.js',
+  '/pwa.js',
   '/icon-192.svg',
   '/icon-512.svg'
 ];

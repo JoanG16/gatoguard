@@ -14,7 +14,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 const SLOT_MINUTES = 30; // 48 franjas de 30 min por día
 const MAC = process.argv[2] || process.env.TARGET_MAC || 'dd:88:00:00:3e:15';
-const TIME_ZONE = process.env.TIME_ZONE || 'America/Mexico_City';
+const TIME_ZONE = process.env.TIME_ZONE || 'America/Bogota';
 
 if (!MAC) {
   console.error('Falta la MAC del beacon. Uso: node routine_learning_job.js <mac>');
@@ -32,12 +32,16 @@ function franjaDe(fecha) {
 }
 
 function inicioDeSiguienteFranja(fecha) {
-  const franjaActual = franjaDe(fecha);
-  const minutosInicioSiguiente = (franjaActual + 1) * SLOT_MINUTES;
-  const resultado = new Date(fecha);
-  resultado.setHours(0, 0, 0, 0);
-  resultado.setMinutes(minutosInicioSiguiente);
-  return resultado;
+  const partes = new Intl.DateTimeFormat('en-US', {
+    timeZone: TIME_ZONE, minute: 'numeric', second: 'numeric'
+  }).formatToParts(fecha);
+  const minuto = Number(partes.find(parte => parte.type === 'minute').value);
+  const segundo = Number(partes.find(parte => parte.type === 'second').value);
+  const milisegundo = fecha.getMilliseconds();
+  const minutosHastaCorte = SLOT_MINUTES - (minuto % SLOT_MINUTES);
+  const milisegundosHastaCorte =
+    (minutosHastaCorte * 60 - segundo) * 1000 - milisegundo;
+  return new Date(fecha.getTime() + milisegundosHastaCorte);
 }
 
 /**
@@ -68,7 +72,7 @@ async function reconstruirMatriz() {
   const { rows: eventos } = await pool.query(
     `SELECT nombre_zona, cambiado_en
      FROM historial_zona
-     WHERE mac = $1
+     WHERE UPPER(mac) = UPPER($1)
      ORDER BY cambiado_en ASC`,
     [MAC]
   );
@@ -111,7 +115,7 @@ async function reconstruirMatriz() {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('DELETE FROM rutinas_patron WHERE mac = $1 AND dia_tipo = $2', [MAC, 'todos']);
+    await client.query('DELETE FROM rutinas_patron WHERE UPPER(mac) = UPPER($1) AND dia_tipo = $2', [MAC, 'todos']);
 
     for (const [clave, datos] of acumulado.entries()) {
       const [franja, zona] = clave.split('|');

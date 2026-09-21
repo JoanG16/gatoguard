@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="es">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#8f4e00"><title>Alertas archivadas</title>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="manifest" href="/manifest.webmanifest"><link rel="stylesheet" href="/ui-polish.css"><meta name="theme-color" content="#0f766e"><title>Alertas archivadas</title>
 <script src="https://cdn.tailwindcss.com"></script><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined&family=Quicksand:wght@400;600;700&display=swap" rel="stylesheet"></head>
-<body class="bg-slate-50 text-slate-800 font-['Quicksand'] min-h-screen p-5 pb-24">
-<main class="max-w-3xl mx-auto"><a href="alertas.html" class="text-orange-700">← Volver a alertas</a><h1 class="text-3xl font-bold mt-6">Alertas archivadas</h1><section id="lista" class="space-y-3 mt-5">Cargando...</section></main>
+<body class="bg-[#f5fbfa] text-[#173231] font-['Quicksand'] min-h-screen p-5 pb-24">
+<main class="max-w-3xl mx-auto"><a href="alertas.html" class="text-[#0f766e]">← Volver a alertas</a><h1 class="text-3xl font-bold mt-6">Alertas archivadas</h1><section id="lista" class="space-y-3 mt-5">Cargando...</section></main>
 <script>
 async function cargar() {
   const lista = document.querySelector('#lista');
@@ -19,10 +19,11 @@ document.querySelector('#lista').addEventListener('click', async event => {
 });
 </script>
 <nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-2 bg-white shadow-[0px_-4px_20px_rgba(0,0,0,0.05)] rounded-t-xl md:hidden">
-  <a class="flex flex-col items-center justify-center text-slate-500 p-2 hover:bg-slate-100 rounded-full" href="index.html"><span class="material-symbols-outlined mb-1 text-[24px]">home</span><span class="text-xs">Home</span></a>
+  <a class="flex flex-col items-center justify-center text-slate-500 p-2 hover:bg-slate-100 rounded-full" href="index.html"><span class="material-symbols-outlined mb-1 text-[24px]">home</span><span class="text-xs">Inicio</span></a>
   <a class="flex flex-col items-center justify-center text-slate-500 p-2 hover:bg-slate-100 rounded-full" href="historial.html"><span class="material-symbols-outlined mb-1 text-[24px]">history</span><span class="text-xs">Historial</span></a>
-  <a class="flex flex-col items-center justify-center bg-orange-200 text-orange-900 rounded-full px-4 py-1 scale-90" href="alertas.html"><span class="material-symbols-outlined mb-1 text-[24px]">notifications</span><span class="text-xs">Alertas</span></a>
-  <a class="flex flex-col items-center justify-center text-slate-500 p-2 hover:bg-slate-100 rounded-full" href="estadisticas.html"><span class="material-symbols-outlined mb-1 text-[24px]">analytics</span><span class="text-xs">Estadísticas</span></a><a class="flex flex-col items-center justify-center text-slate-500 p-2 hover:bg-slate-100 rounded-full" href="perfil.html"><span class="material-symbols-outlined mb-1 text-[24px]">pets</span><span class="text-xs">Perfil</span></a>
+  <a class="flex flex-col items-center justify-center bg-[#d7f3ee] text-[#0f766e] rounded-full px-4 py-1 scale-90" href="alertas.html"><span class="material-symbols-outlined mb-1 text-[24px]">notifications</span><span class="text-xs">Alertas</span></a>
+  <a class="flex flex-col items-center justify-center text-slate-500 p-2 hover:bg-slate-100 rounded-full" href="estadisticas.html"><span class="material-symbols-outlined mb-1 text-[24px]">analytics</span><span class="text-xs">Estadísticas</span></a>  <a class="flex flex-col items-center justify-center text-slate-500 p-2 hover:bg-slate-100 rounded-full" href="perfil.html"><span class="material-symbols-outlined mb-1 text-[24px]">account_circle</span><span class="text-xs">Cuenta</span></a>
 </nav>
+<script src="/motion.js"></script>
 <script src="/pwa.js"></script>
 </body></html>

@@ -14,7 +14,7 @@ const HYSTERESIS_MARGIN = 6;      // dB que la nueva zona debe superar a la actu
 const CONFIRM_POLLS_NEEDED = 2;   // veces SEGUIDAS que el candidato debe ganar antes de aceptar el cambio
 const POLL_INTERVAL_MS = 3000;    // cada cuánto se re-evalúa
 const MIN_RSSI_DBM = Number(process.env.MIN_RSSI_DBM || -65); // RSSI mínimo fijado estrictamente en -65 dBm
-const TIME_ZONE = process.env.TIME_ZONE || 'America/Mexico_City';
+const TIME_ZONE = process.env.TIME_ZONE || 'America/Bogota';
 
 let currentZoneDeviceId = null; // zona confirmada, en memoria
 let pendingZoneDeviceId = null; // candidato a nueva zona, todavía sin suficientes confirmaciones
@@ -133,12 +133,29 @@ async function evaluarZona() {
   }
 }
 
-console.log(`Iniciando detector de zona para beacon ${TARGET_MAC}...`);
-console.log(`Ventana: ${WINDOW_SECONDS}s | RSSI mínimo: ${MIN_RSSI_DBM}dBm | Histéresis: ${HYSTERESIS_MARGIN}dB | Confirmaciones: ${CONFIRM_POLLS_NEEDED} | Poll: ${POLL_INTERVAL_MS}ms\n`);
-
-setInterval(() => {
+async function iniciar() {
+  const { rows } = await pool.query(
+    `SELECT device_id
+     FROM estado_actual
+     WHERE UPPER(mac) = UPPER($1)
+     ORDER BY actualizado_en DESC NULLS LAST
+     LIMIT 1`,
+    [TARGET_MAC]
+  );
+  currentZoneDeviceId = rows[0]?.device_id || null;
+  console.log(`Iniciando detector de zona para beacon ${TARGET_MAC}...`);
+  console.log(`Ventana: ${WINDOW_SECONDS}s | RSSI mínimo: ${MIN_RSSI_DBM}dBm | Histéresis: ${HYSTERESIS_MARGIN}dB | Confirmaciones: ${CONFIRM_POLLS_NEEDED} | Poll: ${POLL_INTERVAL_MS}ms`);
+  if (currentZoneDeviceId) console.log(`Zona recuperada desde estado_actual: ${currentZoneDeviceId}\n`);
   evaluarZona().catch(err => console.error('[ERROR] evaluarZona:', err.message));
-}, POLL_INTERVAL_MS);
+  setInterval(() => {
+    evaluarZona().catch(err => console.error('[ERROR] evaluarZona:', err.message));
+  }, POLL_INTERVAL_MS);
+}
+
+iniciar().catch(err => {
+  console.error('[ERROR] iniciar detector de zona:', err.message);
+  process.exitCode = 1;
+});
 
 process.on('SIGINT', async () => {
   console.log('\nCerrando...');
