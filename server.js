@@ -506,16 +506,19 @@ app.patch('/api/anomalias/:id', async (req, res) => {
 
 app.get('/api/gateways', async (req, res) => {
   try {
-    // "online" ya no es un flag estático: un gateway se considera en línea solo si
-    // tiene una lectura reciente en estado_actual (es decir, si realmente está mandando datos por MQTT).
-    // El M5Stack manda una lectura cada ~3s, así que una ventana corta detecta la desconexión casi al instante.
+    // La disponibilidad pertenece a cada gateway: cualquier lectura MQTT reciente
+    // cuenta, aunque otro gateway tenga el RSSI más fuerte y sea la zona elegida.
     const ONLINE_WINDOW_SECONDS = 15;
     const { rows } = await pool.query(
       `SELECT g.*,
-              (e.actualizado_en IS NOT NULL AND e.actualizado_en > now() - ($1 || ' seconds')::interval) AS online,
-              e.actualizado_en AS ultimo_heartbeat
+              (t.ultimo_dato IS NOT NULL AND t.ultimo_dato > now() - ($1 || ' seconds')::interval) AS online,
+              t.ultimo_dato AS ultimo_heartbeat
        FROM gateways g
-       LEFT JOIN estado_actual e ON e.device_id = g.device_id
+       LEFT JOIN (
+         SELECT device_id, MAX(time) AS ultimo_dato
+         FROM telemetria_raw
+         GROUP BY device_id
+       ) t ON t.device_id = g.device_id
        ORDER BY g.updated_at DESC NULLS LAST`,
       [ONLINE_WINDOW_SECONDS]
     );
@@ -701,10 +704,14 @@ app.get('/api/cuenta', async (req, res) => {
       pool.query(
         `SELECT g.id, g.cliente_id, g.device_id, g.nombre, g.nombre_zona, g.icono,
                 g.created_at, g.updated_at,
-                (e.actualizado_en IS NOT NULL AND e.actualizado_en > now() - interval '15 seconds') AS online,
-                e.actualizado_en AS ultimo_heartbeat
+                (t.ultimo_dato IS NOT NULL AND t.ultimo_dato > now() - interval '15 seconds') AS online,
+                t.ultimo_dato AS ultimo_heartbeat
          FROM gateways g
-         LEFT JOIN estado_actual e ON e.device_id = g.device_id
+         LEFT JOIN (
+           SELECT device_id, MAX(time) AS ultimo_dato
+           FROM telemetria_raw
+           GROUP BY device_id
+         ) t ON t.device_id = g.device_id
          ORDER BY g.nombre NULLS LAST, g.device_id`
       ),
       pool.query(
