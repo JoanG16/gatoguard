@@ -40,6 +40,34 @@ telemetria/{cliente_id}/{device_id}/beacon
   timestamp desde el dispositivo en v1 porque el ESP32 no tiene RTC confiable sin NTP — se agrega
   en una v2 del contrato si hace falta precisión de latencia.
 
+## Alta y sincronización de gateways
+
+La configuración inicial se guarda en las preferencias locales del M5Stack antes de reiniciarlo.
+El teléfono conserva una cola IndexedDB con los metadatos de la operación para sincronizarla cuando
+recupere internet; las credenciales Wi-Fi no se guardan en esa cola ni se publican por MQTT.
+
+Cuando el gateway tenga conexión, publica:
+
+```text
+telemetria/{cliente_id}/{device_id}/gateway/register
+```
+
+```json
+{
+  "cliente_id": "demo_cliente",
+  "device_id": "M5_PISO_1_ESCRITORIO",
+  "nombre_zona": "Escritorio",
+  "provisioning_token": "identificador-idempotente",
+  "config_version": 0
+}
+```
+
+El consumidor registra el gateway de forma idempotente y responde en
+`telemetria/{cliente_id}/{device_id}/gateway/ack`. La configuración de zona o eliminación se
+distribuye en `telemetria/{cliente_id}/{device_id}/gateway/config` como mensaje MQTT retenido para
+que el M5Stack pueda aplicarla al reconectarse. El token identifica una configuración, pero no es
+una credencial de autenticación: el broker MQTT público no debe tratarse como canal privado.
+
 ## Cambios respecto al código de prueba original
 - Se agrega `schema_version` (nuevo).
 - Se renombra la clave `cliente` → `cliente_id` (consistencia con el resto del sistema).

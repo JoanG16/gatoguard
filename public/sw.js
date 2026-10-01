@@ -1,10 +1,11 @@
-const CACHE_NAME = 'gatoguard-shell-v2';
+const CACHE_NAME = 'gatoguard-shell-v4';
 const APP_SHELL = [
   '/',
   '/index.html',
   '/estadisticas.html',
   '/calendario.html',
   '/dispositivos.html',
+  '/gateway-outbox.js',
   '/perfil.html',
   '/historial.html',
   '/alertas.html',
@@ -41,4 +42,64 @@ self.addEventListener('fetch', event => {
       return response;
     }).catch(() => caches.match(event.request).then(response => response || caches.match('/index.html')))
   );
+});
+
+async function syncGatewayOutbox() {
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open('gatoguard-offline', 1);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('No se pudo abrir la cola local.'));
+  });
+  try {
+    const operations = await new Promise((resolve, reject) => {
+      const request = db.transaction('gateway-operations', 'readonly')
+        .objectStore('gateway-operations').getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+
+    for (const operation of operations) {
+      if (operation.conflict) continue;
+      if (operation.action !== 'delete' && !operation.configured) continue;
+      const url = `/api/gateways/${encodeURIComponent(operation.device_id)}`;
+      const options = {
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(operation)
+      };
+      let response;
+      if (operation.action === 'delete') {
+        response = await fetch(url, { ...options, method: 'DELETE' });
+      } else if (operation.action === 'update') {
+        response = await fetch(url, { ...options, method: 'PATCH' });
+        if (response.status === 404) {
+          response = await fetch('/api/gateways/provision', { ...options, method: 'POST' });
+        }
+      } else {
+        response = await fetch('/api/gateways/provision', { ...options, method: 'POST' });
+      }
+
+      const transaction = db.transaction('gateway-operations', 'readwrite');
+      const store = transaction.objectStore('gateway-operations');
+      if (response.ok) {
+        store.delete(operation.device_id);
+      } else if (response.status === 409) {
+        store.put({ ...operation, conflict: true, error: (await response.json()).error || 'La zona requiere revisión.' });
+      } else {
+        throw new Error(`No se pudo sincronizar ${operation.device_id}: ${response.status}`);
+      }
+      await new Promise((resolve, reject) => {
+        transaction.oncomplete = resolve;
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error || new Error('No se pudo actualizar la cola.'));
+      });
+    }
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    clients.forEach(client => client.postMessage({ type: 'gateway-outbox-updated' }));
+  } finally {
+    db.close();
+  }
+}
+
+self.addEventListener('sync', event => {
+  if (event.tag === 'sync-gateway-outbox') event.waitUntil(syncGatewayOutbox());
 });

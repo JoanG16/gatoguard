@@ -2,9 +2,22 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const { Pool } = require('pg');
+const mqtt = require('mqtt');
+const {
+  DUPLICATE_ZONE,
+  DEVICE_CONFLICT,
+  DEVICE_DELETED,
+  ensureGatewayRegistrySchema,
+  validateGatewayZone,
+  registerGateway,
+  updateGatewayZone,
+  deleteGateway
+} = require('./gateway_registry');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, statement_timeout: 10000, query_timeout: 10000 });
 pool.on('error', (err) => console.error('[ERROR] Pool de Postgres:', err.message));
+const mqttClient = mqtt.connect(process.env.MQTT_URL || 'mqtt://broker.hivemq.com:1883');
+mqttClient.on('error', err => console.error('[MQTT] Error en canal de configuración:', err.message));
 const app = express();
 const PORT_CANDIDATES = Array.from(new Set([Number(process.env.PORT || process.env.DASHBOARD_PORT || 3000), 3001, 3002, 3003, 3010]));
 app.use(express.json());
@@ -12,6 +25,7 @@ app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 async function ensureDeviceSchema() {
   try {
+    await ensureGatewayRegistrySchema(pool);
     await pool.query('ALTER TABLE gateways ADD COLUMN IF NOT EXISTS icono TEXT');
     await pool.query('ALTER TABLE gateways ADD COLUMN IF NOT EXISTS nombre TEXT');
     await pool.query('ALTER TABLE beacons ADD COLUMN IF NOT EXISTS nombre_mascota TEXT');
@@ -280,27 +294,55 @@ app.get('/api/estado', async (req, res) => {
   }
 });
 
+function publicarConfigGateway(registro) {
+  if (!mqttClient.connected || !registro.provisioning_token) return;
+  const topic = `telemetria/${registro.cliente_id}/${registro.device_id}/gateway/config`;
+  const payload = JSON.stringify({
+    provisioning_token: registro.provisioning_token,
+    nombre_zona: registro.nombre_zona,
+    config_version: registro.config_version,
+    deleted: Boolean(registro.deleted)
+  });
+  mqttClient.publish(topic, payload, { qos: 1, retain: true }, error => {
+    if (error) console.error('[MQTT] No se pudo publicar la configuración del gateway:', error.message);
+  });
+}
+
+mqttClient.on('connect', async () => {
+  try {
+    await ensureGatewayRegistrySchema(pool);
+    const { rows } = await pool.query(
+      `SELECT cliente_id, device_id, provisioning_token, nombre_zona, config_version, deleted
+       FROM gateway_registry
+       WHERE provisioning_token <> ''`
+    );
+    rows.forEach(publicarConfigGateway);
+  } catch (err) {
+    console.error('[MQTT] No se pudieron restaurar las configuraciones retenidas de gateways:', err.message);
+  }
+});
+
 // =========================================================================
 // ELIMINAR GATEWAY
 // =========================================================================
 app.delete('/api/gateways/:device_id', async (req, res) => {
   const { device_id } = req.params;
   try {
-    // 1. Eliminar la zona mapeada asociada
-    await pool.query('DELETE FROM zonas WHERE device_id = $1', [device_id]);
-
-    // 2. Eliminar el gateway
-    const { rowCount } = await pool.query('DELETE FROM gateways WHERE device_id = $1', [device_id]);
-
-    if (!rowCount) {
+    const resultado = await deleteGateway(pool, {
+      device_id,
+      provisioning_token: req.body?.provisioning_token,
+      cliente_id: req.body?.cliente_id,
+      nombre_zona: req.body?.nombre_zona
+    });
+    if (!resultado) {
       return res.status(404).json({ error: 'Gateway no encontrado en la base de datos.' });
     }
-
+    publicarConfigGateway(resultado);
     console.log(`[DELETE] Gateway ${device_id} eliminado con éxito.`);
     res.json({ ok: true });
   } catch (err) {
     console.error('[ERROR] DELETE /api/gateways/:device_id:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(err.code === DEVICE_CONFLICT ? 409 : 500).json({ error: err.message });
   }
 });
 
@@ -581,8 +623,11 @@ app.get('/api/gateways', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT g.*,
               (t.ultimo_dato IS NOT NULL AND t.ultimo_dato > now() - ($1 || ' seconds')::interval) AS online,
-              t.ultimo_dato AS ultimo_heartbeat
+              t.ultimo_dato AS ultimo_heartbeat,
+              r.provisioning_token,
+              r.config_version
        FROM gateways g
+       LEFT JOIN gateway_registry r ON r.device_id = g.device_id AND r.deleted = false
        LEFT JOIN (
          SELECT device_id, MAX(time) AS ultimo_dato
          FROM telemetria_raw
@@ -604,228 +649,102 @@ app.get('/api/gateways', async (req, res) => {
 
 app.patch('/api/gateways/:device_id', async (req, res) => {
   const { device_id } = req.params;
-  const {
-    nombre_zona,
-    icono,
-    cliente_id,
-    wifi_ssid,
-    wifi_password,
-    mqtt_host,
-    mqtt_port,
-    mqtt_user,
-    mqtt_password,
-    online
-  } = req.body || {};
-
-  let client;
+  const { nombre_zona, icono } = req.body || {};
   try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-    const { rows: actual } = await client.query(
-      'SELECT cliente_id FROM gateways WHERE device_id = $1 FOR UPDATE',
-      [device_id]
-    );
-    if (!actual[0]) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Gateway no encontrado.' });
-    }
-
-    let nombreZonaFinal = null;
+    let resultado;
     if (typeof nombre_zona === 'string' && nombre_zona.trim()) {
-      const resultadoZona = await validarZonaGateway(client, {
-        cliente_id: cliente_id || actual[0].cliente_id,
-        device_id,
-        nombre_zona
+      resultado = await updateGatewayZone(pool, { device_id, nombre_zona, icono });
+      if (!resultado) return res.status(404).json({ error: 'Gateway no encontrado.' });
+      publicarConfigGateway({
+       cliente_id: resultado.cliente_id,
+       device_id: resultado.device_id,
+       provisioning_token: resultado.registry.provisioning_token,
+       nombre_zona: resultado.nombre_zona,
+       config_version: resultado.registry.config_version,
+       deleted: false
       });
-      if (resultadoZona.gateway_en_uso) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({
-          error: `La zona "${resultadoZona.nombre_zona}" ya está asignada al M5Stack ${resultadoZona.gateway_en_uso}.`
-        });
-      }
-      nombreZonaFinal = resultadoZona.nombre_zona;
+      return res.json({
+       ...resultado,
+       icono: resultado.icono || 'location_on',
+       nombre: resultado.nombre || resultado.nombre_zona || 'Gateway',
+       provisioning_token: resultado.registry.provisioning_token,
+       config_version: resultado.registry.config_version
+      });
     }
 
-    const { rows } = await client.query(
-      `UPDATE gateways
-       SET nombre_zona = COALESCE($1, nombre_zona),
-          icono = COALESCE($2, icono),
-          nombre = COALESCE($1, nombre, nombre_zona),
-          cliente_id = COALESCE($3, cliente_id),
-          wifi_ssid = COALESCE($4, wifi_ssid),
-          wifi_password = COALESCE($5, wifi_password),
-          mqtt_host = COALESCE($6, mqtt_host),
-          mqtt_port = COALESCE($7, mqtt_port),
-          mqtt_user = COALESCE($8, mqtt_user),
-          mqtt_password = COALESCE($9, mqtt_password),
-          online = COALESCE($10, online),
-          updated_at = now()
-       WHERE device_id = $11
-       RETURNING *`,
-      [
-       nombreZonaFinal ?? null,
-       icono ?? null,
-       cliente_id ?? null,
-       wifi_ssid ?? null,
-       wifi_password ?? null,
-       mqtt_host ?? null,
-       mqtt_port ?? null,
-       mqtt_user ?? null,
-       mqtt_password ?? null,
-       online ?? null,
-       device_id
-      ]
+    const { rows } = await pool.query(
+      `UPDATE gateways SET icono = COALESCE($1, icono), updated_at = now()
+       WHERE device_id = $2 RETURNING *`,
+      [icono ?? null, device_id]
     );
-    if (nombreZonaFinal) {
-      await client.query(
-       `INSERT INTO zonas (device_id, nombre_zona)
-        VALUES ($1, $2)
-        ON CONFLICT (device_id) DO UPDATE SET nombre_zona = EXCLUDED.nombre_zona`,
-       [device_id, nombreZonaFinal]
-      );
-    }
-    await client.query('COMMIT');
-    res.json({ ...rows[0], icono: rows[0].icono || 'location_on', nombre: rows[0].nombre || rows[0].nombre_zona || 'Gateway' });
+    if (!rows[0]) return res.status(404).json({ error: 'Gateway no encontrado.' });
+    res.json(rows[0]);
   } catch (err) {
-    if (client) await client.query('ROLLBACK');
     console.error('[ERROR] /api/gateways/:device_id:', err.message);
-    res.status(500).json({ error: err.message });
-  } finally {
-    client?.release();
+    res.status(err.code === DUPLICATE_ZONE ? 409 : 500).json({ error: err.message });
   }
 });
 
 app.put('/api/gateways/:id', async (req, res) => {
   const { id } = req.params;
-  const { nombre_zona, wifi_ssid, wifi_password, mqtt_host, mqtt_port, mqtt_user, mqtt_password, online, icono } = req.body || {};
+  const { nombre_zona, icono } = req.body || {};
 
   try {
-    const { rows } = await pool.query(
-      `UPDATE gateways
-       SET nombre_zona = COALESCE($1, nombre_zona),
-          icono = COALESCE($9, icono),
-          wifi_ssid = COALESCE($2, wifi_ssid),
-          wifi_password = COALESCE($3, wifi_password),
-          mqtt_host = COALESCE($4, mqtt_host),
-          mqtt_port = COALESCE($5, mqtt_port),
-          mqtt_user = COALESCE($6, mqtt_user),
-          mqtt_password = COALESCE($7, mqtt_password),
-          online = COALESCE($8, online),
-          updated_at = now()
-       WHERE id = $10
-       RETURNING *`,
-      [nombre_zona ?? null, wifi_ssid ?? null, wifi_password ?? null, mqtt_host ?? null, mqtt_port ?? null, mqtt_user ?? null, mqtt_password ?? null, online ?? null, icono ?? null, id]
-    );
-    if (!rows[0]) return res.status(404).json({ error: 'Gateway no encontrado.' });
-    await sincronizarZonaDesdeGateway(rows[0].device_id, rows[0].nombre_zona);
-    res.json({ ...rows[0], icono: rows[0].icono || 'location_on' });
+    const { rows: gatewayRows } = await pool.query('SELECT device_id FROM gateways WHERE id = $1', [id]);
+    if (!gatewayRows[0]) return res.status(404).json({ error: 'Gateway no encontrado.' });
+    const resultado = await updateGatewayZone(pool, {
+      device_id: gatewayRows[0].device_id,
+      nombre_zona,
+      icono
+    });
+    if (!resultado) return res.status(404).json({ error: 'Gateway no encontrado.' });
+    const payload = {
+      cliente_id: resultado.cliente_id,
+      device_id: resultado.device_id,
+      provisioning_token: resultado.registry.provisioning_token,
+      nombre_zona: resultado.nombre_zona,
+      config_version: resultado.registry.config_version,
+      deleted: false
+    };
+    publicarConfigGateway(payload);
+    res.json({
+      ...resultado,
+      icono: resultado.icono || 'location_on',
+      provisioning_token: resultado.registry.provisioning_token,
+      config_version: resultado.registry.config_version
+    });
   } catch (err) {
     console.error('[ERROR] /api/gateways/:id:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(err.code === DUPLICATE_ZONE ? 409 : 500).json({ error: err.message });
   }
 });
 
 app.post('/api/gateways/validate-zone', async (req, res) => {
-  const { cliente_id, device_id, nombre_zona } = req.body || {};
-  if (!cliente_id || !device_id) {
-    return res.status(400).json({ error: 'cliente_id y device_id son obligatorios.' });
-  }
-  if (typeof nombre_zona !== 'string' || !nombre_zona.trim()) {
-    return res.status(400).json({ error: 'Escribe el nombre de la zona para continuar.' });
-  }
-
-  let client;
+  const { cliente_id, device_id, nombre_zona, provisioning_token } = req.body || {};
   try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-    const resultado = await validarZonaGateway(client, { cliente_id, device_id, nombre_zona });
+    const resultado = await validateGatewayZone(pool, { cliente_id, device_id, nombre_zona, provisioning_token });
     if (resultado.gateway_en_uso) {
-      await client.query('ROLLBACK');
       return res.status(409).json({
-        error: `La zona "${resultado.nombre_zona}" ya está asignada al M5Stack ${resultado.gateway_en_uso}. Cambia la zona de ese equipo o elimínalo antes de continuar.`
+       error: `La zona "${resultado.nombre_zona}" ya está asignada al M5Stack ${resultado.gateway_en_uso}. Cambia la zona de ese equipo o elimínalo antes de continuar.`
       });
     }
-    await client.query('COMMIT');
     res.json({ ok: true, nombre_zona: resultado.nombre_zona });
   } catch (err) {
-    if (client) await client.query('ROLLBACK');
     console.error('[ERROR] /api/gateways/validate-zone:', err.message);
-    res.status(500).json({ error: 'No se pudo validar la zona. Inténtalo de nuevo.' });
-  } finally {
-    client?.release();
+    res.status(err.code ? 500 : 400).json({ error: err.message });
   }
 });
 
 app.post('/api/gateways/provision', async (req, res) => {
-  const { cliente_id, device_id, nombre_zona, wifi_ssid, wifi_password, mqtt_host, mqtt_port, mqtt_user, mqtt_password, icono } = req.body || {};
-  if (!cliente_id || !device_id) {
-    return res.status(400).json({ error: 'cliente_id y device_id son obligatorios.' });
-  }
-  if (typeof nombre_zona !== 'string' || !nombre_zona.trim()) {
-    return res.status(400).json({ error: 'Escribe el nombre de la zona para continuar.' });
-  }
-  if (typeof wifi_ssid !== 'string' || !wifi_ssid.trim()) {
-    return res.status(400).json({ error: 'Selecciona o escribe la red Wi-Fi del M5Stack.' });
-  }
-
-  let client;
+  const { cliente_id, device_id, nombre_zona, provisioning_token, icono } = req.body || {};
   try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-    const resultadoZona = await validarZonaGateway(client, { cliente_id, device_id, nombre_zona });
-    if (resultadoZona.gateway_en_uso) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({
-        error: `La zona "${resultadoZona.nombre_zona}" ya está asignada al M5Stack ${resultadoZona.gateway_en_uso}. Cambia la zona de ese equipo o elimínalo antes de continuar.`
-      });
-    }
-
-    const { rows: gatewayExistente } = await client.query(
-      'SELECT cliente_id FROM gateways WHERE device_id = $1 FOR UPDATE',
-      [device_id]
-    );
-    if (gatewayExistente[0] && gatewayExistente[0].cliente_id !== cliente_id) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'Ese identificador ya está registrado para otra cuenta.' });
-    }
-
-    const { rows } = await client.query(
-      `INSERT INTO gateways (cliente_id, device_id, nombre, nombre_zona, icono, wifi_ssid, wifi_password, mqtt_host, mqtt_port, mqtt_user, mqtt_password, updated_at)
-       VALUES ($1, $2, $3, $3, COALESCE($4, 'location_on'), $5, $6, COALESCE($7, 'broker.hivemq.com'), COALESCE($8, 1883), $9, $10, now())
-       ON CONFLICT (device_id) DO UPDATE SET
-         cliente_id = EXCLUDED.cliente_id,
-         nombre = EXCLUDED.nombre,
-         nombre_zona = EXCLUDED.nombre_zona,
-         icono = COALESCE(EXCLUDED.icono, gateways.icono),
-         wifi_ssid = EXCLUDED.wifi_ssid,
-         wifi_password = EXCLUDED.wifi_password,
-         mqtt_host = EXCLUDED.mqtt_host,
-         mqtt_port = EXCLUDED.mqtt_port,
-         mqtt_user = EXCLUDED.mqtt_user,
-         mqtt_password = EXCLUDED.mqtt_password,
-         updated_at = now()
-       RETURNING *`,
-      [cliente_id, device_id, resultadoZona.nombre_zona, icono || null, wifi_ssid.trim(), wifi_password ?? '', mqtt_host || null, mqtt_port || null, mqtt_user || null, mqtt_password || null]
-    );
-    await client.query(
-      `INSERT INTO zonas (device_id, nombre_zona)
-       VALUES ($1, $2)
-       ON CONFLICT (device_id) DO UPDATE SET nombre_zona = EXCLUDED.nombre_zona`,
-      [rows[0].device_id, resultadoZona.nombre_zona]
-    );
-    await client.query('COMMIT');
-    res.status(201).json({
-      ...rows[0],
-      nombre_zona: resultadoZona.nombre_zona,
-      icono: rows[0].icono || 'location_on',
-      nombre: rows[0].nombre || resultadoZona.nombre_zona
-    });
+    const resultado = await registerGateway(pool, { cliente_id, device_id, nombre_zona, provisioning_token, icono });
+    publicarConfigGateway(resultado);
+    res.status(200).json(resultado);
   } catch (err) {
-    if (client) await client.query('ROLLBACK');
     console.error('[ERROR] /api/gateways/provision:', err.message);
-    res.status(500).json({ error: err.message });
-  } finally {
-    client?.release();
+    const status = [DUPLICATE_ZONE, DEVICE_CONFLICT, DEVICE_DELETED].includes(err.code) ? 409 : 400;
+    res.status(status).json({ error: err.message });
   }
 });
 

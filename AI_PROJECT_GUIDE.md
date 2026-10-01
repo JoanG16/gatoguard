@@ -196,6 +196,13 @@ Hace:
 - publicar RSSI/MAC en MQTT
 - modo AP de configuración con escaneo Wi‑Fi asíncrono
 - persistencia de SSID, contraseña, cliente y device_id
+- persistencia de zona/token y reintento de registro al recuperar conexión
+- recepción de cambios de zona y eliminación desde MQTT
+
+La configuración que el usuario guarda desde la PWA se conserva en el M5Stack incluso sin internet.
+La app mantiene una cola IndexedDB sin credenciales Wi‑Fi y la sincroniza al recuperar conexión.
+`index.js` procesa el alta MQTT y `gateway_registry.js` valida zonas, evita duplicados y conserva
+versiones/tombstones de configuración. El contrato y los topics están en `INGESTION_CONTRACT.md`.
 
 #### anomaly_detector.js
 Script principal para detectar anomalías por capas.
@@ -509,6 +516,8 @@ Si una IA nueva entra al proyecto, lo esencial es esto:
 ## 13. Archivos clave resumidos
 
 - `server.js` -> backend central
+- `index.js` -> consumo MQTT de telemetría y registro del gateway
+- `gateway_registry.js` -> registro idempotente, validación de zona y ciclo de vida del gateway
 - `schema.sql` -> base de datos del sistema
 - `gateway_m5stack.ino` -> firmware del dispositivo
 - `INGESTION_CONTRACT.md` -> protocolo MQTT
@@ -516,6 +525,7 @@ Si una IA nueva entra al proyecto, lo esencial es esto:
 - `anomaly_detector.js` -> detección de anomalías
 - `zone_detector.js` -> lógica de zona / rango RSSI
 - `public/dispositivos.html` -> gestión de gateways y mascotas
+- `public/gateway-outbox.js` -> cola local de operaciones de gateways sin conexión
 - `public/index.html` -> Home
 - `public/alertas.html` -> alertas
 - `public/historial.html` -> historial
@@ -529,10 +539,11 @@ Actualmente el proyecto está funcionando como prueba de concepto con:
 - backend y API
 - base de datos PostgreSQL
 - UI web de dashboard
-- gestión de dispositivos básica
+- gestión de dispositivos y sincronización offline de gateways
 - lógica de aprendizaje y anomalías
 
-Todavía falta validar en hardware real y cerrar la parte de onboarding/configuración del M5Stack en la práctica real.
+La configuración de firmware debe compilarse y probarse en hardware M5Stack real antes de flashearla;
+el firmware se entrega como cambio local para que el usuario lo cargue desde Arduino.
 
 ---
 
