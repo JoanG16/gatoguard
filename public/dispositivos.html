@@ -121,6 +121,7 @@
               <select id="gateway-network-list" class="mt-1 w-full rounded-xl border border-surface-variant bg-surface-container-low px-3 py-2 text-sm text-on-surface outline-none focus:ring-2 focus:ring-primary/30">
                 <option value="">Selecciona una red...</option>
               </select>
+              <p id="gateway-network-status" class="mt-2 min-h-5 text-xs text-on-surface-variant" role="status" aria-live="polite"></p>
             </div>
           </div>
           <div>
@@ -502,6 +503,16 @@
       $('#qr-scanner-wrap').classList.add('hidden');
     }
 
+    async function fetchConTiempo(url, options, timeoutMs) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(url, { ...options, signal: controller.signal });
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
     async function iniciarEscaneoQR() {
       if (!('BarcodeDetector' in window)) {
         alert('Este navegador no soporta lectura de QR con cámara. Escribe la MAC manualmente.');
@@ -542,36 +553,76 @@
     $('#scan-beacon-qr').addEventListener('click', iniciarEscaneoQR);
     $('#qr-scanner-cancel').addEventListener('click', detenerEscaneoQR);
 
-    async function connectToGatewayAccessPoint() {
+    async function connectToGatewayAccessPoint(showAlert = true) {
       try {
-        const res = await fetch('http://192.168.4.1/health', { mode: 'cors', cache: 'no-store' });
+        const res = await fetchConTiempo('http://192.168.4.1/health', {
+          mode: 'cors',
+          cache: 'no-store'
+        }, 6000);
         if (!res.ok) throw new Error('No responde');
         const data = await res.json().catch(() => ({ ok: true }));
         if (data.ok) {
-          alert('Conectado al gateway. Ahora puedes escanear las redes cercanas.');
+          $('#gateway-network-status').textContent = 'M5Stack conectado. Ya puedes buscar las redes cercanas.';
+          if (showAlert) alert('Conectado al gateway. Ahora puedes escanear las redes cercanas.');
           return true;
         }
       } catch (error) {
-        alert('No se pudo conectar al M5Stack en modo AP. Comprueba que esté encendido y que el gateway esté en "GatoGateway-Setup".');
+        $('#gateway-network-status').textContent = 'El navegador no permitió conectar con el M5Stack. Autoriza el acceso a la red local o escribe el nombre de la red manualmente.';
+        if (showAlert) alert('No se pudo conectar al M5Stack en modo AP. Comprueba que esté encendido y que el gateway esté en "GatoGateway-Setup".');
         return false;
       }
       return false;
     }
 
     async function scanGatewayNetworks() {
-      const ok = await connectToGatewayAccessPoint();
-      if (!ok) return;
+      const button = $('#scan-gateway-networks');
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = 'Buscando...';
+      $('#gateway-network-status').textContent = 'Conectando con el M5Stack...';
       try {
-        const res = await fetch('http://192.168.4.1/networks', { mode: 'cors', cache: 'no-store' });
-        if (!res.ok) throw new Error('No se pudo listar las redes');
-        const networks = await res.json();
+        const ok = await connectToGatewayAccessPoint(false);
+        if (!ok) return;
+        $('#gateway-network-status').textContent = 'Buscando redes cercanas. Puede tardar unos segundos...';
+        const deadline = Date.now() + 30000;
+        let networks;
+        do {
+          const res = await fetchConTiempo('http://192.168.4.1/networks', {
+            mode: 'cors',
+            cache: 'no-store'
+          }, 8000);
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'No se pudo listar las redes');
+          if (Array.isArray(data)) {
+            networks = data;
+            break;
+          }
+          if (data.status !== 'scanning') throw new Error(data.error || 'Respuesta inesperada del M5Stack');
+          await new Promise(resolve => setTimeout(resolve, 800));
+        } while (Date.now() < deadline);
+        if (!networks) throw new Error('El escaneo tardó demasiado. Inténtalo otra vez.');
+
+        const redesPorNombre = new Map();
+        networks.forEach(network => {
+          if (!network.ssid) return;
+          const anterior = redesPorNombre.get(network.ssid);
+          if (!anterior || Number(network.rssi) > Number(anterior.rssi)) {
+            redesPorNombre.set(network.ssid, network);
+          }
+        });
+        const redesOrdenadas = [...redesPorNombre.values()].sort((a, b) => Number(b.rssi) - Number(a.rssi));
         const select = $('#gateway-network-list');
-        select.innerHTML = '<option value="">Selecciona una red...</option>' + (networks || []).map((net) => `<option value="${net.ssid}">${net.ssid} (${net.rssi} dBm)</option>`).join('');
-        if (!networks || !networks.length) {
-          select.innerHTML = '<option value="">No se encontraron redes cercanas</option>';
-        }
+        select.replaceChildren(new Option('Selecciona una red...', ''));
+        redesOrdenadas.forEach(net => select.add(new Option(`${net.ssid} (${net.rssi} dBm)`, net.ssid)));
+        $('#gateway-network-status').textContent = redesOrdenadas.length
+          ? `Se encontraron ${redesOrdenadas.length} redes. Elige una y escribe su contraseña.`
+          : 'No se encontraron redes. Escribe el nombre de la red manualmente.';
       } catch (error) {
-        alert('El gateway no está respondiendo a la lista de redes. Debe estar en modo AP y con la ruta /networks habilitada.');
+        console.error('[Wi-Fi] No se pudieron escanear las redes:', error);
+        $('#gateway-network-status').textContent = error.message || 'No se pudieron escanear las redes. Escribe el nombre manualmente.';
+      } finally {
+        button.disabled = false;
+        button.textContent = originalText;
       }
     }
 
@@ -599,14 +650,14 @@ $('#device-form').addEventListener('submit', async (event) => {
       if (mode === 'gateway-create' || mode === 'gateway-edit') {
         const device_id = (payload.device_id || target || '').trim() || 'GW-' + Math.random().toString(16).slice(2, 10).toUpperCase();
         const wifiSsid = (payload.wifi_ssid || '').trim();
-        const wifiPass = (payload.wifi_password || '').trim();
+        const wifiPass = payload.wifi_password || '';
         const nombreZona = (payload.nombre_zona || '').trim();
         const icono = payload.icono || 'location_on';
 
         // -----------------------------------------------------------------
         // REGLA CLAVE: Solo enviamos al M5Stack si AMBOS campos tienen texto
         // -----------------------------------------------------------------
-        const quiereReconfigurarWifi = wifiSsid.length > 0 && wifiPass.length > 0;
+        const quiereReconfigurarWifi = wifiSsid.length > 0;
 
         // CASO 1: EDITAR SOLO NOMBRE E ÍCONO (No toca el M5Stack)
         if (!quiereReconfigurarWifi && mode === 'gateway-edit') {
@@ -635,15 +686,27 @@ $('#device-form').addEventListener('submit', async (event) => {
 
         // CASO 2: CREAR NUEVO SIN WI-FI (Error)
         if (mode === 'gateway-create' && !quiereReconfigurarWifi) {
-          alert('Para crear un gateway nuevo debes ingresar la Red Wi-Fi y la Contraseña.');
+          alert('Selecciona o escribe la red Wi-Fi. Si tiene contraseña, también debes ingresarla.');
           return;
         }
 
-        // CASO 3: CONFIGURACIÓN / RECONFIGURACIÓN DE WI-FI EN EL M5STACK
+        if (!nombreZona) {
+          alert('Escribe el nombre de la zona donde estará instalado el M5Stack.');
+          return;
+        }
+
+        const cliente_id = (payload.cliente_id || 'cliente-demo').trim() || 'cliente-demo';
+        const validacion = await validarZonaEnServidor({ cliente_id, device_id, nombre_zona: nombreZona });
+        if (!validacion.ok) {
+          alert(validacion.error);
+          return;
+        }
+        $('#gateway-zone').value = validacion.nombre_zona;
+
         const bodyBD = {
-          cliente_id: (payload.cliente_id || 'cliente-demo').trim() || 'cliente-demo',
+          cliente_id,
           device_id,
-          nombre_zona: nombreZona || 'Escritorio',
+          nombre_zona: validacion.nombre_zona,
           icono,
           wifi_ssid: wifiSsid,
           wifi_password: wifiPass,
@@ -651,20 +714,25 @@ $('#device-form').addEventListener('submit', async (event) => {
           mqtt_port: 1883
         };
 
-        const enviadoAlM5 = await enviarCredencialesAlM5(wifiSsid, wifiPass, device_id);
+        try {
+          await registrarGatewayEnBD(bodyBD);
+        } catch (error) {
+          alert(error.message || 'No se pudo registrar el M5Stack en tu cuenta.');
+          return;
+        }
 
-        if (enviadoAlM5) {
-          alert('¡M5Stack reconfigurado con éxito! Guardando en tu cuenta...');
-          closeModal();
-
-          const registradoBD = await registrarGatewayEnBD(bodyBD);
-          if (registradoBD) {
-            cargar();
-          } else {
-            alert('El M5Stack se configuró. Se registrará automáticamente en la base de datos al recibir la primera lectura.');
-          }
+        const configuracion = await enviarCredencialesAlM5(
+          wifiSsid,
+          wifiPass,
+          device_id,
+          cliente_id
+        );
+        closeModal();
+        await cargar();
+        if (configuracion.ok) {
+          alert(`M5Stack agregado para ${validacion.nombre_zona}. Las credenciales se enviaron; aparecerá en línea cuando se conecte y reporte lecturas.`);
         } else {
-          alert('No se pudo conectar con el M5Stack (192.168.4.1). Asegúrate de estar conectado a su red Wi-Fi "GatoGateway-Setup".');
+          alert(`El M5Stack ya aparece en Dispositivos para ${validacion.nombre_zona}, pero no recibió la red Wi-Fi: ${configuracion.error}. Puedes reintentar la configuración desde Editar.`);
         }
         return;
       }
@@ -704,51 +772,64 @@ $('#device-form').addEventListener('submit', async (event) => {
     });
 
     // 1. Función para enviar Wi-Fi al M5Stack
-async function enviarCredencialesAlM5(wifiSsid, wifiPass, deviceId = 'M5_1') {
+async function enviarCredencialesAlM5(wifiSsid, wifiPass, deviceId, clienteId) {
   try {
     console.log('[CONFIG] Enviando datos al M5Stack (192.168.4.1)...');
 
-    const respuesta = await fetch('http://192.168.4.1/config', {
+    const respuesta = await fetchConTiempo('http://192.168.4.1/config', {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({
         wifi_ssid: wifiSsid,
         wifi_pass: wifiPass,
         device_id: deviceId,
-        cliente_id: 'demo_cliente'
+        cliente_id: clienteId
       })
-    });
-
+    }, 8000);
     const data = await respuesta.json();
-    return data.ok;
+    if (!respuesta.ok || !data.ok) {
+      return { ok: false, error: data.error || 'El M5Stack rechazó la configuración.' };
+    }
+    return { ok: true, error: '' };
   } catch (err) {
     console.error('Error contactando al M5Stack:', err);
-    return false;
+    return { ok: false, error: err.message || 'No se pudo conectar con 192.168.4.1.' };
   }
 }
 
-// 2. Función para registrar en BD cuando vuelva la conexión
-async function registrarGatewayEnBD(body, intentos = 10) {
-  for (let i = 0; i < intentos; i++) {
+async function validarZonaEnServidor(body) {
+  try {
+    const res = await fetchConTiempo('/api/gateways/validate-zone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }, 10000);
+    const data = await res.json();
+    if (!res.ok) return { ok: false, error: data.error || 'No se pudo validar la zona.' };
+    return { ok: true, nombre_zona: data.nombre_zona, error: '' };
+  } catch (err) {
+    console.error('[VALIDACIÓN] No se pudo consultar la zona:', err);
+    return { ok: false, error: 'No hay conexión con el servidor para validar la zona. Comprueba tu conexión e inténtalo de nuevo.' };
+  }
+}
+
+async function registrarGatewayEnBD(body) {
+  for (let intento = 0; intento < 3; intento += 1) {
     try {
-      console.log(`[BD] Intentando registrar gateway en BD (Intento ${i + 1}/${intentos})...`);
-      const res = await fetch('/api/gateways/provision', {
+      const res = await fetchConTiempo('/api/gateways/provision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
-      });
-
-      if (res.ok) {
-        console.log('[BD] ¡Gateway registrado con éxito en PostgreSQL!');
-        return true;
-      }
+      }, 10000);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo guardar el M5Stack en la base de datos.');
+      return data;
     } catch (err) {
-      console.log('[BD] Aún no hay conexión con el servidor. Esperando 2 segundos...');
+      if (err instanceof Error && !['TypeError', 'AbortError'].includes(err.name)) throw err;
+      if (intento === 2) throw new Error('No se pudo guardar el M5Stack en la base de datos. Comprueba la conexión e inténtalo de nuevo.');
+      await new Promise(resolve => setTimeout(resolve, 1200));
     }
-    // Esperar 2 segundos antes de volver a intentar (tiempo para que el teléfono vuelva a la Wi-Fi)
-    await new Promise(r => setTimeout(r, 2000));
   }
-  return false;
 }
     setActiveTab('gateways');
     renderIcons();

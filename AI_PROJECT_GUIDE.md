@@ -194,8 +194,8 @@ Hace:
 - conexión MQTT
 - BLE scanning
 - publicar RSSI/MAC en MQTT
-- nodos básicos de configuración wifi/mqtt
-- abierto a evolución hacia multi-beacon y AP de configuración
+- modo AP de configuración con escaneo Wi‑Fi asíncrono
+- persistencia de SSID, contraseña, cliente y device_id
 
 #### anomaly_detector.js
 Script principal para detectar anomalías por capas.
@@ -330,18 +330,21 @@ Lista gateways.
 Actualiza un gateway (nombre de zona, icono, etc).
 
 ### 6.6. /api/gateways/provision
-Crea o actualiza un gateway con datos de configuración (Wi‑Fi/MQTT). Eso es relevante para el flujo de onboarding.
+Crea o actualiza un gateway con datos de configuración (Wi‑Fi/MQTT). Resuelve el nombre de zona contra las zonas/rutinas ya conocidas y no permite asignar la misma zona a dos M5Stack del cliente.
 
-### 6.7. /api/beacons
+### 6.7. /api/gateways/validate-zone
+Valida una zona antes de enviar las credenciales al M5Stack y devuelve el nombre canónico que debe mostrar la app.
+
+### 6.8. /api/beacons
 Lista beacons asignados.
 
-### 6.8. /api/beacons/sin-asignar
+### 6.9. /api/beacons/sin-asignar
 Lista beacons detectados que aún no tienen nombre/mascota asignado.
 
-### 6.9. /api/beacons
+### 6.10. /api/beacons
 POST: crea o actualiza beacon y lo asigna a una mascota.
 
-### 6.10. /api/beacons/:mac
+### 6.11. /api/beacons/:mac
 Actualiza beacon.
 
 ## 7. Dashboard web: pantallas principales

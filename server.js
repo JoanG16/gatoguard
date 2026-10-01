@@ -140,6 +140,75 @@ async function sincronizarZonaDesdeGateway(device_id, nombre_zona) {
   }
 }
 
+async function obtenerNombreZonaCanonico(executor, nombre_zona) {
+  const { rows: zonasExistentes } = await executor.query(
+    `SELECT nombre_zona FROM zonas
+     WHERE LOWER(TRIM(nombre_zona)) = LOWER(TRIM($1))
+     ORDER BY device_id
+     LIMIT 1`,
+    [nombre_zona]
+  );
+  if (zonasExistentes[0]) return zonasExistentes[0].nombre_zona;
+
+  const { rows: rutinasExistentes } = await executor.query(
+    `SELECT nombre_zona FROM rutinas_patron
+     WHERE LOWER(TRIM(nombre_zona)) = LOWER(TRIM($1))
+     ORDER BY nombre_zona
+     LIMIT 1`,
+    [nombre_zona]
+  );
+  return rutinasExistentes[0]?.nombre_zona || nombre_zona.trim();
+}
+
+async function validarZonaGateway(executor, { cliente_id, device_id, nombre_zona }) {
+  const nombreIngresado = nombre_zona.trim();
+  const nombreNormalizado = nombreIngresado.toLocaleLowerCase('es');
+
+  await executor.query(
+    'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+    [`gateway-zone:${cliente_id}:${nombreNormalizado}`]
+  );
+
+  const nombreCanonico = await obtenerNombreZonaCanonico(executor, nombreIngresado);
+  const { rows: gatewaysActivos } = await executor.query(
+    `SELECT device_id FROM (
+       SELECT g.device_id, 1 AS prioridad
+       FROM gateways g
+       LEFT JOIN (
+         SELECT device_id, MAX(time) AS ultimo_dato
+         FROM telemetria_raw
+         GROUP BY device_id
+       ) t ON t.device_id = g.device_id
+       WHERE g.cliente_id = $1
+         AND g.device_id <> $2
+         AND LOWER(TRIM(g.nombre_zona)) = LOWER(TRIM($3))
+         AND (
+           NULLIF(TRIM(g.wifi_ssid), '') IS NOT NULL
+           OR t.ultimo_dato > now() - interval '15 seconds'
+         )
+       UNION ALL
+       SELECT z.device_id, 2 AS prioridad
+       FROM zonas z
+       JOIN (
+         SELECT device_id, MAX(time) AS ultimo_dato
+         FROM telemetria_raw
+         GROUP BY device_id
+       ) t ON t.device_id = z.device_id
+       WHERE z.device_id <> $2
+         AND LOWER(TRIM(z.nombre_zona)) = LOWER(TRIM($3))
+         AND t.ultimo_dato > now() - interval '15 seconds'
+     ) ocupacion
+     ORDER BY prioridad, device_id
+     LIMIT 1`,
+    [cliente_id, device_id, nombreCanonico]
+  );
+
+  return {
+    nombre_zona: nombreCanonico,
+    gateway_en_uso: gatewaysActivos[0]?.device_id || null
+  };
+}
+
 function duracionLegible(segundos) {
   if (segundos < 60) return `${segundos} segundos`;
   const minutos = segundos / 60;
@@ -548,25 +617,36 @@ app.patch('/api/gateways/:device_id', async (req, res) => {
     online
   } = req.body || {};
 
+  let client;
   try {
-    if (nombre_zona && nombre_zona.trim()) {
-      const { rows: actual } = await pool.query('SELECT cliente_id FROM gateways WHERE device_id = $1', [device_id]);
-      if (!actual[0]) return res.status(404).json({ error: 'Gateway no encontrado.' });
-      const clienteActual = cliente_id || actual[0].cliente_id;
-
-      const { rows: duplicados } = await pool.query(
-        `SELECT device_id FROM gateways
-         WHERE cliente_id = $1
-           AND device_id <> $2
-           AND LOWER(TRIM(nombre_zona)) = LOWER($3)`,
-        [clienteActual, device_id, nombre_zona.trim()]
-      );
-      if (duplicados.length) {
-        return res.status(409).json({ error: `Ya existe un gateway llamado "${nombre_zona.trim()}". Elige otro nombre.` });
-      }
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const { rows: actual } = await client.query(
+      'SELECT cliente_id FROM gateways WHERE device_id = $1 FOR UPDATE',
+      [device_id]
+    );
+    if (!actual[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Gateway no encontrado.' });
     }
 
-    const { rows } = await pool.query(
+    let nombreZonaFinal = null;
+    if (typeof nombre_zona === 'string' && nombre_zona.trim()) {
+      const resultadoZona = await validarZonaGateway(client, {
+        cliente_id: cliente_id || actual[0].cliente_id,
+        device_id,
+        nombre_zona
+      });
+      if (resultadoZona.gateway_en_uso) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: `La zona "${resultadoZona.nombre_zona}" ya está asignada al M5Stack ${resultadoZona.gateway_en_uso}.`
+        });
+      }
+      nombreZonaFinal = resultadoZona.nombre_zona;
+    }
+
+    const { rows } = await client.query(
       `UPDATE gateways
        SET nombre_zona = COALESCE($1, nombre_zona),
           icono = COALESCE($2, icono),
@@ -583,7 +663,7 @@ app.patch('/api/gateways/:device_id', async (req, res) => {
        WHERE device_id = $11
        RETURNING *`,
       [
-       nombre_zona ?? null,
+       nombreZonaFinal ?? null,
        icono ?? null,
        cliente_id ?? null,
        wifi_ssid ?? null,
@@ -596,12 +676,22 @@ app.patch('/api/gateways/:device_id', async (req, res) => {
        device_id
       ]
     );
-    if (!rows[0]) return res.status(404).json({ error: 'Gateway no encontrado.' });
-    await sincronizarZonaDesdeGateway(rows[0].device_id, rows[0].nombre_zona);
+    if (nombreZonaFinal) {
+      await client.query(
+       `INSERT INTO zonas (device_id, nombre_zona)
+        VALUES ($1, $2)
+        ON CONFLICT (device_id) DO UPDATE SET nombre_zona = EXCLUDED.nombre_zona`,
+       [device_id, nombreZonaFinal]
+      );
+    }
+    await client.query('COMMIT');
     res.json({ ...rows[0], icono: rows[0].icono || 'location_on', nombre: rows[0].nombre || rows[0].nombre_zona || 'Gateway' });
   } catch (err) {
+    if (client) await client.query('ROLLBACK');
     console.error('[ERROR] /api/gateways/:device_id:', err.message);
     res.status(500).json({ error: err.message });
+  } finally {
+    client?.release();
   }
 });
 
@@ -635,33 +725,77 @@ app.put('/api/gateways/:id', async (req, res) => {
   }
 });
 
+app.post('/api/gateways/validate-zone', async (req, res) => {
+  const { cliente_id, device_id, nombre_zona } = req.body || {};
+  if (!cliente_id || !device_id) {
+    return res.status(400).json({ error: 'cliente_id y device_id son obligatorios.' });
+  }
+  if (typeof nombre_zona !== 'string' || !nombre_zona.trim()) {
+    return res.status(400).json({ error: 'Escribe el nombre de la zona para continuar.' });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const resultado = await validarZonaGateway(client, { cliente_id, device_id, nombre_zona });
+    if (resultado.gateway_en_uso) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: `La zona "${resultado.nombre_zona}" ya está asignada al M5Stack ${resultado.gateway_en_uso}. Cambia la zona de ese equipo o elimínalo antes de continuar.`
+      });
+    }
+    await client.query('COMMIT');
+    res.json({ ok: true, nombre_zona: resultado.nombre_zona });
+  } catch (err) {
+    if (client) await client.query('ROLLBACK');
+    console.error('[ERROR] /api/gateways/validate-zone:', err.message);
+    res.status(500).json({ error: 'No se pudo validar la zona. Inténtalo de nuevo.' });
+  } finally {
+    client?.release();
+  }
+});
+
 app.post('/api/gateways/provision', async (req, res) => {
   const { cliente_id, device_id, nombre_zona, wifi_ssid, wifi_password, mqtt_host, mqtt_port, mqtt_user, mqtt_password, icono } = req.body || {};
   if (!cliente_id || !device_id) {
     return res.status(400).json({ error: 'cliente_id y device_id son obligatorios.' });
   }
+  if (typeof nombre_zona !== 'string' || !nombre_zona.trim()) {
+    return res.status(400).json({ error: 'Escribe el nombre de la zona para continuar.' });
+  }
+  if (typeof wifi_ssid !== 'string' || !wifi_ssid.trim()) {
+    return res.status(400).json({ error: 'Selecciona o escribe la red Wi-Fi del M5Stack.' });
+  }
 
+  let client;
   try {
-    const nombreZonaLimpio = (nombre_zona || device_id || '').trim();
-    if (nombreZonaLimpio) {
-      const { rows: duplicados } = await pool.query(
-        `SELECT device_id FROM gateways
-         WHERE cliente_id = $1
-           AND device_id <> $2
-           AND LOWER(TRIM(nombre_zona)) = LOWER($3)`,
-        [cliente_id, device_id, nombreZonaLimpio]
-      );
-      if (duplicados.length) {
-        return res.status(409).json({ error: `Ya existe un gateway llamado "${nombreZonaLimpio}". Elige otro nombre.` });
-      }
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const resultadoZona = await validarZonaGateway(client, { cliente_id, device_id, nombre_zona });
+    if (resultadoZona.gateway_en_uso) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: `La zona "${resultadoZona.nombre_zona}" ya está asignada al M5Stack ${resultadoZona.gateway_en_uso}. Cambia la zona de ese equipo o elimínalo antes de continuar.`
+      });
     }
 
-    const { rows } = await pool.query(
-      `INSERT INTO gateways (cliente_id, device_id, nombre_zona, icono, wifi_ssid, wifi_password, mqtt_host, mqtt_port, mqtt_user, mqtt_password, updated_at)
-       VALUES ($1, $2, COALESCE($3, $2), COALESCE($4, 'location_on'), $5, $6, COALESCE($7, 'broker.hivemq.com'), COALESCE($8, 1883), $9, $10, now())
+    const { rows: gatewayExistente } = await client.query(
+      'SELECT cliente_id FROM gateways WHERE device_id = $1 FOR UPDATE',
+      [device_id]
+    );
+    if (gatewayExistente[0] && gatewayExistente[0].cliente_id !== cliente_id) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Ese identificador ya está registrado para otra cuenta.' });
+    }
+
+    const { rows } = await client.query(
+      `INSERT INTO gateways (cliente_id, device_id, nombre, nombre_zona, icono, wifi_ssid, wifi_password, mqtt_host, mqtt_port, mqtt_user, mqtt_password, updated_at)
+       VALUES ($1, $2, $3, $3, COALESCE($4, 'location_on'), $5, $6, COALESCE($7, 'broker.hivemq.com'), COALESCE($8, 1883), $9, $10, now())
        ON CONFLICT (device_id) DO UPDATE SET
          cliente_id = EXCLUDED.cliente_id,
-         nombre_zona = COALESCE(EXCLUDED.nombre_zona, gateways.nombre_zona),
+         nombre = EXCLUDED.nombre,
+         nombre_zona = EXCLUDED.nombre_zona,
          icono = COALESCE(EXCLUDED.icono, gateways.icono),
          wifi_ssid = EXCLUDED.wifi_ssid,
          wifi_password = EXCLUDED.wifi_password,
@@ -671,13 +805,27 @@ app.post('/api/gateways/provision', async (req, res) => {
          mqtt_password = EXCLUDED.mqtt_password,
          updated_at = now()
        RETURNING *`,
-      [cliente_id, device_id, nombreZonaLimpio || null, icono || null, wifi_ssid || null, wifi_password || null, mqtt_host || null, mqtt_port || null, mqtt_user || null, mqtt_password || null]
+      [cliente_id, device_id, resultadoZona.nombre_zona, icono || null, wifi_ssid.trim(), wifi_password ?? '', mqtt_host || null, mqtt_port || null, mqtt_user || null, mqtt_password || null]
     );
-    await sincronizarZonaDesdeGateway(rows[0].device_id, rows[0].nombre_zona);
-    res.status(201).json({ ...rows[0], icono: rows[0].icono || 'location_on' });
+    await client.query(
+      `INSERT INTO zonas (device_id, nombre_zona)
+       VALUES ($1, $2)
+       ON CONFLICT (device_id) DO UPDATE SET nombre_zona = EXCLUDED.nombre_zona`,
+      [rows[0].device_id, resultadoZona.nombre_zona]
+    );
+    await client.query('COMMIT');
+    res.status(201).json({
+      ...rows[0],
+      nombre_zona: resultadoZona.nombre_zona,
+      icono: rows[0].icono || 'location_on',
+      nombre: rows[0].nombre || resultadoZona.nombre_zona
+    });
   } catch (err) {
+    if (client) await client.query('ROLLBACK');
     console.error('[ERROR] /api/gateways/provision:', err.message);
     res.status(500).json({ error: err.message });
+  } finally {
+    client?.release();
   }
 });
 
