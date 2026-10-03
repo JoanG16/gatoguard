@@ -92,7 +92,7 @@
 
 <main class="flex-1 px-margin py-lg flex flex-col gap-lg max-w-4xl mx-auto w-full">
 
-  <section class="flex items-center gap-md">
+  <section class="flex flex-wrap items-center gap-md">
     <div class="w-20 h-20 rounded-[28px] overflow-hidden shadow-md border-2 border-primary-container bg-primary-container/30 flex items-center justify-center">
       <svg class="cat-badge h-14 w-14 text-primary" viewBox="0 0 72 72" role="img" aria-label="Icono de Michi">
         <path fill="currentColor" d="M17 31V12l14 10c3-1 7-1 10 0l14-10v19c4 4 6 9 6 15 0 12-11 19-25 19S7 58 7 46c0-6 3-11 10-15Z"/>
@@ -109,6 +109,12 @@
         <span class="text-label-lg font-label-lg" id="estado-texto" style="color:#006b5b;">Cargando…</span>
       </div>
       <p id="estado-ayuda" class="mt-2 hidden text-sm text-on-surface-variant" aria-live="polite"></p>
+      <div class="mt-2 flex flex-wrap items-center gap-2">
+        <label for="filtro-gato-home" class="text-sm font-semibold text-on-surface-variant">Ver información de</label>
+        <select id="filtro-gato-home" class="h-10 min-w-[180px] max-w-full rounded-xl border border-surface-variant bg-white px-3 py-2 text-sm font-semibold text-on-surface shadow-sm focus:ring-2 focus:ring-primary" aria-label="Filtrar inicio por gato">
+          <option value="all">Todos los gatos</option>
+        </select>
+      </div>
     </div>
   </section>
 
@@ -118,7 +124,7 @@
       <header class="flex justify-between items-center mb-sm">
         <h3 class="text-headline-sm font-headline-sm text-on-surface flex items-center gap-2">
           <span class="material-symbols-outlined text-primary">location_on</span>
-          ¿Dónde está Michi?
+          <span id="titulo-zonas">¿Dónde está Michi?</span>
         </h3>
         <span class="bg-primary-container text-on-primary-container text-label-md font-label-md px-2 py-1 rounded-full">En directo</span>
       </header>
@@ -133,7 +139,7 @@
     <div class="flex items-start gap-md">
       <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/60 text-error"><span class="material-symbols-outlined">visibility</span></span>
       <div>
-        <h3 class="text-headline-sm font-headline-sm text-on-error-container">Michi necesita una mirada</h3>
+        <h3 id="anomalias-titulo" class="text-headline-sm font-headline-sm text-on-error-container">Hay una alerta pendiente</h3>
         <p id="anomalias-resumen" class="text-body-md text-on-error-container mt-1"></p>
       </div>
     </div>
@@ -143,8 +149,8 @@
     <div class="flex items-start gap-md">
       <span class="material-symbols-outlined text-primary">auto_awesome</span>
       <div>
-        <h3 class="text-headline-sm font-headline-sm">Lo que suele hacer</h3>
-        <p id="rutina-esperada" class="text-body-md text-on-surface-variant mt-1">Consultando lo que suele hacer Michi a esta hora…</p>
+        <h3 id="rutina-titulo" class="text-headline-sm font-headline-sm">Rutina habitual</h3>
+        <p id="rutina-esperada" class="text-body-md text-on-surface-variant mt-1">Consultando la rutina…</p>
       </div>
     </div>
   </section>
@@ -175,10 +181,44 @@ const $ = (sel) => document.querySelector(sel);
 let notificacionesActivas = false;
 let ultimaZonaConocida = null;
 let estadosActuales = [];
+let gatosActuales = [];
 let tiempoEnZona = '—';
 let idsAlertasConocidas = new Set();
 let configuracionAvisos = { avisos_alertas: true, avisos_sin_lecturas: true };
 let ultimaHoraNotificada = null;
+
+function gatoSeleccionado() {
+  return $('#filtro-gato-home').value;
+}
+
+function urlApiHome(path) {
+  const url = new URL(path, window.location.href);
+  url.searchParams.set('gato', gatoSeleccionado());
+  url.searchParams.set('t', String(Date.now()));
+  return `${url.pathname}${url.search}`;
+}
+
+function actualizarTitulosGato() {
+  const mac = gatoSeleccionado();
+  const gato = gatosActuales.find(item => item.mac.toUpperCase() === mac.toUpperCase());
+  const nombre = gato?.nombre || null;
+  $('#nombre-mascota').textContent = nombre || 'Todos los gatos';
+  $('#titulo-zonas').textContent = nombre ? `¿Dónde está ${nombre}?` : '¿Dónde están los gatitos?';
+  $('#rutina-titulo').textContent = nombre ? `Rutina de ${nombre}` : 'Rutina de los gatitos';
+}
+
+function seleccionarGato(mac) {
+  $('#filtro-gato-home').value = mac;
+  actualizarTitulosGato();
+  ultimaZonaConocida = null;
+  ultimaHoraNotificada = null;
+
+  const url = new URL(window.location.href);
+  url.searchParams.delete('mac');
+  if (mac === 'all') url.searchParams.delete('gato');
+  else url.searchParams.set('gato', mac);
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+}
 
 function iconoZona(nombre) {
   const n = (nombre || '').toLowerCase();
@@ -208,22 +248,65 @@ function fechaCorta(fechaISO) {
   }).format(new Date(fechaISO));
 }
 
+async function cargarGatos() {
+  const res = await fetch(`/api/gatos?t=${Date.now()}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  gatosActuales = await res.json();
+  const selector = $('#filtro-gato-home');
+  const gatosOrdenados = [...gatosActuales].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  selector.replaceChildren(new Option('Todos los gatos', 'all'));
+  gatosOrdenados.forEach(gato => selector.add(new Option(gato.nombre, gato.mac)));
+  const params = new URLSearchParams(window.location.search);
+  const macSolicitada = params.get('gato') || params.get('mac');
+  const gatoValido = gatosActuales.find(gato => gato.mac.toUpperCase() === (macSolicitada || '').toUpperCase());
+  selector.value = gatoValido?.mac || 'all';
+  actualizarTitulosGato();
+}
+
 async function actualizarEstado() {
   try {
-    const res = await fetch(`/api/estado?t=${Date.now()}`, { cache: 'no-store' });
+    const res = await fetch(urlApiHome('/api/estado'), { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const estados = await res.json();
-    if (!estados || estados.length === 0) return;
+    if (!estados || estados.length === 0) {
+      estadosActuales = [];
+      renderZonasGrid([]);
+      $('#estado-dot').style.background = '#78908e';
+      $('#estado-texto').style.color = '#47615f';
+      $('#estado-texto').textContent = 'Sin lugares registrados';
+      $('#estado-ayuda').classList.add('hidden');
+      return;
+    }
 
-    const actual = estados.find(estado => estado.mac) || estados[0];
+    const gatosConLectura = estados.filter(estado => estado.mac && estado.actualizado_en);
+    const actual = gatosConLectura.length ? gatosConLectura.reduce((masReciente, estado) => {
+      if (!masReciente || new Date(estado.actualizado_en).getTime() > new Date(masReciente.actualizado_en).getTime()) return estado;
+      return masReciente;
+    }, null) : null;
     estadosActuales = estados;
-    const segundos = (Date.now() - new Date(actual.actualizado_en).getTime()) / 1000;
-    const rancio = segundos > STALE_AFTER_S;
+    const gatosEsperados = gatoSeleccionado() === 'all'
+      ? gatosActuales
+      : gatosActuales.filter(gato => gato.mac.toUpperCase() === gatoSeleccionado().toUpperCase());
+    const macsConLectura = new Set(gatosConLectura.map(estado => estado.mac.toUpperCase()));
+    const sinLectura = gatosEsperados.some(gato => !macsConLectura.has(gato.mac.toUpperCase()));
+    const rancio = sinLectura || gatosConLectura.some(estado =>
+      (Date.now() - new Date(estado.actualizado_en).getTime()) / 1000 > STALE_AFTER_S);
 
     $('#estado-dot').style.background = rancio ? '#ba1a1a' : '#0f766e';
     $('#estado-texto').style.color = rancio ? '#ba1a1a' : '#0f766e';
-    $('#estado-texto').textContent = rancio ? 'Necesita atención' : 'Está activo';
+    if (gatoSeleccionado() !== 'all') {
+      $('#estado-texto').textContent = gatosConLectura.length
+        ? (rancio ? 'Necesita atención' : 'Está activo')
+        : 'Sin señal reciente';
+    } else if (gatosActuales.length > 1) {
+      $('#estado-texto').textContent = rancio ? 'Hay gatos sin señal' : 'Todos activos';
+    } else if (!gatosActuales.length) {
+      $('#estado-texto').textContent = 'Sin gatos registrados';
+    } else {
+      $('#estado-texto').textContent = rancio ? 'Sin señal reciente' : 'Está activo';
+    }
     $('#estado-ayuda').textContent = rancio
-      ? 'No recibo una lectura reciente. Revisa el gateway.'
+      ? 'Revisa la conexión del M5Stack y que el beacon esté cerca.'
       : '';
     $('#estado-ayuda').classList.toggle('hidden', !rancio);
     $('#status-chip').classList.remove('is-fresh');
@@ -231,10 +314,10 @@ async function actualizarEstado() {
 
     $('#sensors-icon').style.color = rancio ? '#ba1a1a' : (notificacionesActivas ? '#006b5b' : '');
 
-    if (ultimaZonaConocida && ultimaZonaConocida !== actual.nombre_zona) {
+    if (gatoSeleccionado() !== 'all' && actual && ultimaZonaConocida && ultimaZonaConocida !== actual.nombre_zona) {
       dispararNotificacion(actual.nombre_zona);
     }
-    ultimaZonaConocida = actual.nombre_zona;
+    if (gatoSeleccionado() !== 'all' && actual?.nombre_zona) ultimaZonaConocida = actual.nombre_zona;
 
     renderZonasGrid(estados);
   } catch (err) {
@@ -246,22 +329,40 @@ function renderZonasGrid(estados) {
   const grid = $('#zonas-grid');
   grid.innerHTML = '';
 
-  // Buscar la zona donde está el gato según la última lectura
-  const actual = estados.find(estado => estado.mac);
+  const gatosPorZona = new Map();
+  estados.forEach(estado => {
+    if (!estado.nombre_zona || !estado.mac) return;
+    const mac = String(estado.mac).toUpperCase();
+    if (gatoSeleccionado() !== 'all' && mac !== gatoSeleccionado().toUpperCase()) return;
+    const gato = gatosActuales.find(item => item.mac.toUpperCase() === mac) || {
+      nombre: estado.nombre_mascota || 'Mascota',
+      icono: estado.icono_mascota || 'pets',
+      mac
+    };
+    if (!gatosPorZona.has(estado.nombre_zona)) gatosPorZona.set(estado.nombre_zona, []);
+    gatosPorZona.get(estado.nombre_zona).push(gato);
+  });
 
   estados.forEach(e => {
-    const activa = actual && e.nombre_zona === actual.nombre_zona;
+    if (!e.nombre_zona) return;
+    const gatos = gatosPorZona.get(e.nombre_zona) || [];
+    const activa = gatos.length > 0;
     const icono = e.icono || 'location_on';
 
     const tile = document.createElement('div');
     tile.className = 'zona-tile relative flex flex-col items-center justify-center gap-1 p-3 rounded-lg border border-surface-variant bg-surface-container-lowest' + (activa ? ' activa' : '');
     tile.title = e.nombre_zona;
-    tile.setAttribute('aria-label', e.nombre_zona);
+    tile.setAttribute('aria-label', activa
+      ? `${e.nombre_zona}: ${gatos.map(gato => gato.nombre).join(', ')}`
+      : e.nombre_zona);
 
     tile.innerHTML = `
       <span class="material-symbols-outlined ${activa ? 'text-primary font-bold' : 'text-on-surface-variant'}" aria-hidden="true">${icono}</span>
       <span class="text-xs font-semibold ${activa ? 'text-primary' : 'text-on-surface-variant'}">${e.nombre_zona}</span>
-      ${activa ? `<span class="absolute top-1 right-2 text-[10px] font-bold text-primary">${tiempoEnZona}</span>` : ''}
+      ${activa ? `<span class="mt-1 flex flex-wrap justify-center gap-1">${gatos.slice(0, 3).map(gato => `
+        <span class="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white bg-primary-container text-primary shadow-sm" title="${gato.nombre}">
+          <span class="material-symbols-outlined text-sm">${gato.icono || 'pets'}</span>
+        </span>`).join('')}${gatos.length > 3 ? `<span class="text-xs font-semibold">+${gatos.length - 3}</span>` : ''}</span>` : ''}
     `;
     grid.appendChild(tile);
   });
@@ -269,7 +370,8 @@ function renderZonasGrid(estados) {
 
 async function actualizarMetricas() {
   try {
-    const res = await fetch(`/api/historial?limit=200&t=${Date.now()}`, { cache: 'no-store' });
+    const res = await fetch(urlApiHome('/api/historial?limit=200'), { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const eventos = await res.json();
     if (!eventos || eventos.length === 0) {
       tiempoEnZona = 'Sin datos';
@@ -288,7 +390,7 @@ async function actualizarMetricas() {
 
 async function actualizarAnomalias() {
   try {
-    const res = await fetch(`/api/anomalias?t=${Date.now()}`, { cache: 'no-store' });
+    const res = await fetch(urlApiHome('/api/anomalias'), { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const anomalias = await res.json();
     const activas = anomalias.filter(a => !a.resuelta_en);
@@ -298,7 +400,7 @@ async function actualizarAnomalias() {
       ? configuracionAvisos.avisos_sin_lecturas
       : configuracionAvisos.avisos_alertas);
     if (idsAlertasConocidas.size && nuevas.length && notificacionesActivas && Notification.permission === 'granted' && avisosPermitidos) {
-      new Notification('Nueva alerta de Michi', { body: 'Revisa la sección de alertas para ver los detalles.' });
+      new Notification('Nueva alerta de GatoGuard', { body: 'Revisa la sección de alertas para ver los detalles.' });
     }
     idsAlertasConocidas = new Set(anomalias.map(a => a.id));
     const card = $('#anomalias-card');
@@ -324,7 +426,12 @@ async function actualizarAnomalias() {
         month: '2-digit',
         day: '2-digit'
       }).format(new Date(alerta.detectada_en)) === hoyBogota);
-      card.href = `calendario.html?fecha=${fechaBogota}`;
+      const params = new URLSearchParams({ fecha: fechaBogota });
+      if (gatoSeleccionado() !== 'all') params.set('gato', gatoSeleccionado());
+      card.href = `calendario.html?${params}`;
+      $('#anomalias-titulo').textContent = gatoSeleccionado() === 'all'
+        ? 'Hay alertas pendientes'
+        : `${gatosActuales.find(gato => gato.mac.toUpperCase() === gatoSeleccionado().toUpperCase())?.nombre || 'Tu gato'} necesita una mirada`;
       $('#anomalias-resumen').textContent = alertasHoy.length > 0
         ? (alertasHoy.length === 1
           ? 'Hay una alerta hoy. Abre Agenda para ver qué ocurrió.'
@@ -348,7 +455,7 @@ async function cargarConfiguracionAvisos() {
 
 async function actualizarRutinaEsperada() {
   try {
-    const res = await fetch(`/api/rutina?t=${Date.now()}`, { cache: 'no-store' });
+    const res = await fetch(urlApiHome('/api/rutina'), { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const rutina = await res.json();
     const partes = new Intl.DateTimeFormat('en-US', {
@@ -358,20 +465,34 @@ async function actualizarRutinaEsperada() {
     const minuto = Number(partes.find(parte => parte.type === 'minute').value);
     const minutos = hora * 60 + minuto;
     const item = rutina.find(tramo => {
+      if (gatoSeleccionado() !== 'all' && tramo.mac.toUpperCase() !== gatoSeleccionado().toUpperCase()) return false;
       const inicio = Number(tramo.franja_horaria);
       const fin = inicio + Number(tramo.duracion_promedio_min);
       return minutos >= inicio && minutos < fin;
     });
-    $('#rutina-esperada').textContent = item
-      ? `A esta hora suele estar en ${item.nombre_zona}.`
-      : 'Todavía no hay un patrón aprendido para esta hora.';
+    if (gatoSeleccionado() === 'all') {
+      const actuales = gatosActuales.map(gato => {
+        const tramo = rutina.find(item => item.mac.toUpperCase() === gato.mac.toUpperCase()
+          && minutos >= Number(item.franja_horaria)
+          && minutos < Number(item.franja_horaria) + Number(item.duracion_promedio_min));
+        return tramo ? `${gato.nombre}: ${tramo.nombre_zona}` : null;
+      }).filter(Boolean);
+      $('#rutina-esperada').textContent = actuales.length
+        ? actuales.join(' · ')
+        : 'Todavía no hay patrones aprendidos para esta hora.';
+    } else {
+      $('#rutina-esperada').textContent = item
+        ? `A esta hora suele estar en ${item.nombre_zona}.`
+        : 'Todavía no hay un patrón aprendido para esta hora.';
+    }
 
     // Notificación horaria: si la zona esperada coincide con la real, avisa una vez por hora que todo está bien.
     const horaActual = `${new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })}-${hora}`;
-    if (item && ultimaZonaConocida && item.nombre_zona === ultimaZonaConocida && horaActual !== ultimaHoraNotificada) {
+    if (gatoSeleccionado() !== 'all' && item && ultimaZonaConocida && item.nombre_zona === ultimaZonaConocida && horaActual !== ultimaHoraNotificada) {
       ultimaHoraNotificada = horaActual;
       if (notificacionesActivas && Notification.permission === 'granted' && configuracionAvisos.avisos_alertas) {
-        new Notification('Todo en orden', { body: `Michi está cumpliendo su rutina, se encuentra en ${item.nombre_zona}.` });
+        const nombre = gatosActuales.find(gato => gato.mac.toUpperCase() === gatoSeleccionado().toUpperCase())?.nombre || 'Tu gato';
+        new Notification('Todo en orden', { body: `${nombre} está siguiendo su rutina en ${item.nombre_zona}.` });
       }
     }
   } catch (err) {
@@ -382,7 +503,7 @@ async function actualizarRutinaEsperada() {
 
 async function revisarRecordatorios() {
   try {
-    const res = await fetch(`/api/recordatorios-pendientes?t=${Date.now()}`, { cache: 'no-store' });
+    const res = await fetch(urlApiHome('/api/recordatorios-pendientes'), { cache: 'no-store' });
     if (!res.ok) return;
     const pendientes = await res.json();
     if (!pendientes.length) return;
@@ -409,18 +530,46 @@ $('#sensors-btn').addEventListener('click', async () => {
 });
 
 let actualizando = false;
+let actualizarPendiente = false;
 async function tick() {
-  if (actualizando) return;
+  if (actualizando) {
+    actualizarPendiente = true;
+    return;
+  }
   actualizando = true;
   try {
     await Promise.all([actualizarEstado(), actualizarMetricas(), actualizarAnomalias(), actualizarRutinaEsperada(), revisarRecordatorios()]);
   } finally {
     actualizando = false;
+    if (actualizarPendiente) {
+      actualizarPendiente = false;
+      tick();
+    }
   }
 }
-tick();
+$('#filtro-gato-home').addEventListener('change', () => {
+  seleccionarGato(gatoSeleccionado());
+  tick();
+});
+async function iniciarHome() {
+  try {
+    await cargarGatos();
+  } catch (err) {
+    console.error('Error /api/gatos', err);
+  }
+  tick();
+}
+iniciarHome();
 cargarConfiguracionAvisos();
 setInterval(tick, POLL_MS);
+setInterval(async () => {
+  try {
+    await cargarGatos();
+    tick();
+  } catch (err) {
+    console.error('Error /api/gatos', err);
+  }
+}, 15000);
 </script>
 <script>window.addEventListener('load', () => document.body.classList.add('ui-ready')); setTimeout(() => document.body.classList.add('ui-ready'), 1500);</script>
 <script src="/motion.js"></script>

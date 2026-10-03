@@ -252,9 +252,37 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-// Estado actual de cada beacon monitoreado (por ahora, uno solo, pero el endpoint ya soporta varios).
+async function obtenerMacFiltroHome(req) {
+  const valor = req.query.gato || req.query.mac || req.query.mascota;
+  if (!valor || ['all', 'todos', 'todas', 'todo'].includes(String(valor).trim().toLowerCase())) return null;
+  const { rows } = await pool.query(
+    'SELECT UPPER(TRIM(mac)) AS mac FROM beacons WHERE asignado = true AND UPPER(TRIM(mac)) = UPPER(TRIM($1)) LIMIT 1',
+    [String(valor).trim()]
+  );
+  return rows[0]?.mac || '__UNREGISTERED_BEACON__';
+}
+
+app.get('/api/gatos', async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT ON (UPPER(TRIM(mac)))
+              UPPER(TRIM(mac)) AS mac,
+              COALESCE(nombre_mascota, nombre, 'Mascota') AS nombre,
+              COALESCE(icono, 'pets') AS icono
+       FROM beacons
+       WHERE asignado = true
+       ORDER BY UPPER(TRIM(mac)), ultimo_visto DESC NULLS LAST, updated_at DESC`
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('[ERROR] /api/gatos:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/estado', async (req, res) => {
   try {
+    const mac = await obtenerMacFiltroHome(req);
     // Unimos `gateways` (fuente de verdad de la app) con `zonas` (fuente legacy usada por
     // zone_detector.js/anomaly_detector.js) para que el Home muestre TODAS las zonas conocidas,
     // incluidas las que ya tienen rutina aprendida pero todavía no tienen un gateway propio
@@ -284,8 +312,15 @@ app.get('/api/estado', async (req, res) => {
               e.rssi_promedio,
               e.actualizado_en
        FROM unico u
-       LEFT JOIN estado_actual e ON e.device_id = u.device_id
-       ORDER BY u.nombre_zona ASC`
+       LEFT JOIN estado_actual e
+         ON e.device_id = u.device_id
+        AND EXISTS (
+          SELECT 1 FROM beacons b
+          WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(e.mac))
+        )
+        AND ($1::text IS NULL OR UPPER(TRIM(e.mac)) = UPPER(TRIM($1)))
+       ORDER BY u.nombre_zona ASC`,
+      [mac]
     );
     res.json(rows);
   } catch (err) {
@@ -373,12 +408,18 @@ app.delete('/api/beacons/:mac', async (req, res) => {
 app.get('/api/historial', async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 20, 200);
   try {
+    const mac = await obtenerMacFiltroHome(req);
     const { rows } = await pool.query(
       `SELECT mac, nombre_zona, cambiado_en
        FROM historial_zona
+       WHERE EXISTS (
+         SELECT 1 FROM beacons b
+         WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(historial_zona.mac))
+       )
+         AND ($1::text IS NULL OR UPPER(TRIM(mac)) = UPPER(TRIM($1)))
        ORDER BY cambiado_en DESC
-       LIMIT $1`,
-      [limit]
+       LIMIT $2`,
+      [mac, limit]
     );
     res.json(rows);
   } catch (err) {
@@ -389,22 +430,27 @@ app.get('/api/historial', async (req, res) => {
 
 app.get('/api/anomalias', async (req, res) => {
   try {
+    const mac = await obtenerMacFiltroHome(req);
     const desde = req.query.desde || null;
     const hasta = req.query.hasta || null;
     const revisada = req.query.revisada;
     const archivada = req.query.archivada === 'true';
     const condiciones = [
-      'UPPER(mac) = UPPER($1)',
+      `EXISTS (
+         SELECT 1 FROM beacons b
+         WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(anomalias.mac))
+       )`,
+      '($1::text IS NULL OR UPPER(mac) = UPPER($1))',
       archivada ? 'archivada_en IS NOT NULL' : 'archivada_en IS NULL',
       // Una alerta de pérdida de señal deja de estar activa cuando vuelve a
       // entrar una lectura posterior a su detección, aunque el detector aún
       // no haya alcanzado a escribir resuelta_en.
       `(tipo <> 'sin_senal' OR NOT EXISTS (
          SELECT 1 FROM telemetria_raw t
-         WHERE UPPER(t.mac) = UPPER($1) AND t.time > anomalias.detectada_en
+         WHERE UPPER(t.mac) = UPPER(anomalias.mac) AND t.time > anomalias.detectada_en
        ))`
     ];
-    const parametros = [process.env.TARGET_MAC || 'dd:88:00:00:3e:15'];
+    const parametros = [mac];
     if (desde) { parametros.push(desde); condiciones.push(`detectada_en >= $${parametros.length}::date`); }
     if (hasta) { parametros.push(hasta); condiciones.push(`detectada_en < ($${parametros.length}::date + interval '1 day')`); }
     if (revisada === 'true') condiciones.push('revisada_en IS NOT NULL');
@@ -415,7 +461,7 @@ app.get('/api/anomalias', async (req, res) => {
               (SELECT z.nombre_zona
                FROM estado_actual e
                JOIN zonas z ON z.device_id = e.device_id
-               WHERE UPPER(e.mac) = UPPER($1)
+               WHERE UPPER(e.mac) = UPPER(anomalias.mac)
                LIMIT 1) AS zona_actual,
               ROUND(EXTRACT(EPOCH FROM (COALESCE(resuelta_en, now()) - detectada_en)))::int AS duracion_segundos
        FROM anomalias
@@ -568,11 +614,15 @@ app.delete('/api/recordatorios/:id', async (req, res) => {
 // Recordatorios pendientes de notificar cuya hora ya llegó (consultado por polling desde el navegador).
 app.get('/api/recordatorios-pendientes', async (req, res) => {
   try {
-    const mac = process.env.TARGET_MAC || 'dd:88:00:00:3e:15';
+    const mac = await obtenerMacFiltroHome(req);
     const { rows } = await pool.query(
       `SELECT id, fecha, hora, titulo
        FROM recordatorios
-       WHERE UPPER(mac) = UPPER($1)
+       WHERE EXISTS (
+         SELECT 1 FROM beacons b
+         WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(recordatorios.mac))
+       )
+         AND ($1::text IS NULL OR UPPER(mac) = UPPER($1))
          AND notificar = true
          AND notificado = false
          AND (fecha + hora) <= (now() AT TIME ZONE 'America/Bogota')
@@ -993,15 +1043,20 @@ app.delete('/api/anomalias/:id', async (req, res) => {
 app.get('/api/rutina', async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    const mac = await obtenerMacFiltroHome(req);
     const { rows } = await pool.query(
       `WITH eventos AS (
-         SELECT nombre_zona, cambiado_en,
-                LEAD(cambiado_en) OVER (ORDER BY cambiado_en) AS siguiente
+         SELECT mac, nombre_zona, cambiado_en,
+                LEAD(cambiado_en) OVER (PARTITION BY mac ORDER BY cambiado_en) AS siguiente
          FROM historial_zona
-         WHERE UPPER(mac) = UPPER($1)
+         WHERE EXISTS (
+           SELECT 1 FROM beacons b
+           WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(historial_zona.mac))
+         )
+           AND ($1::text IS NULL OR UPPER(mac) = UPPER($1))
        ),
        segmentos AS (
-         SELECT nombre_zona,
+         SELECT mac, nombre_zona,
                 EXTRACT(HOUR FROM cambiado_en AT TIME ZONE 'America/Bogota')::int * 60 +
                   EXTRACT(MINUTE FROM cambiado_en AT TIME ZONE 'America/Bogota')::int AS inicio_min,
                 EXTRACT(EPOCH FROM (siguiente - cambiado_en)) / 60 AS duracion_min
@@ -1011,30 +1066,30 @@ app.get('/api/rutina', async (req, res) => {
            AND siguiente - cambiado_en <= interval '24 hours'
        ),
        patrones AS (
-         SELECT inicio_min, nombre_zona, COUNT(*)::int AS observaciones
+         SELECT mac, inicio_min, nombre_zona, COUNT(*)::int AS observaciones
          FROM segmentos
-         GROUP BY inicio_min, nombre_zona
+         GROUP BY mac, inicio_min, nombre_zona
          HAVING COUNT(*) >= 2
        ),
        ordenados AS (
-         SELECT inicio_min, nombre_zona, observaciones,
-                LEAD(inicio_min) OVER (ORDER BY inicio_min) AS siguiente_inicio
+         SELECT mac, inicio_min, nombre_zona, observaciones,
+                LEAD(inicio_min) OVER (PARTITION BY mac ORDER BY inicio_min) AS siguiente_inicio
          FROM (
            SELECT patrones.*,
                   ROW_NUMBER() OVER (
-                    PARTITION BY inicio_min
+                    PARTITION BY mac, inicio_min
                     ORDER BY observaciones DESC, nombre_zona
                   ) AS prioridad
            FROM patrones
          ) seleccionados
          WHERE prioridad = 1
        )
-       SELECT inicio_min AS franja_horaria, nombre_zona,
+       SELECT mac, inicio_min AS franja_horaria, nombre_zona,
               GREATEST(1, COALESCE(siguiente_inicio, 1440) - inicio_min)::int AS duracion_promedio_min,
               observaciones
        FROM ordenados
        ORDER BY inicio_min`,
-      [process.env.TARGET_MAC || 'dd:88:00:00:3e:15']
+      [mac]
     );
     res.json(rows);
   } catch (err) {
