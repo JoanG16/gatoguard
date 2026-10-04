@@ -18,6 +18,12 @@
     <h1 class="font-headline font-bold text-xl text-primary">Agenda</h1><span class="w-6"></span>
   </header>
   <main class="pt-24 px-5 max-w-3xl mx-auto space-y-5">
+    <section class="flex flex-wrap items-center gap-2 rounded-xl bg-surface-container-low p-4">
+      <label for="filtro-gato" class="text-sm font-semibold text-on-surface-variant">Ver agenda de</label>
+      <select id="filtro-gato" class="h-10 min-w-[180px] max-w-full rounded-xl border border-surface-variant bg-white px-3 py-2 text-sm font-semibold text-on-surface focus:ring-2 focus:ring-primary" aria-label="Filtrar agenda por gato">
+        <option value="all">Todos los gatos</option>
+      </select>
+    </section>
     <section class="rounded-2xl bg-white p-5 shadow-sm">
       <div class="mb-3 flex items-center justify-between">
         <button id="mes-anterior" class="rounded-full p-2 hover:bg-surface-container-low"><span class="material-symbols-outlined">chevron_left</span></button>
@@ -38,7 +44,7 @@
       <div class="mb-3 flex items-center justify-between">
         <h2 id="titulo-dia" class="font-headline text-xl font-semibold">Día</h2>
         <div class="flex items-center gap-2">
-          <a href="alertas-archivadas.html" class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-surface-variant text-on-surface-variant transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-md active:scale-95" title="Ver alertas archivadas" aria-label="Ver alertas archivadas"><span class="material-symbols-outlined">archive</span></a>
+          <a id="alertas-archivadas" href="alertas-archivadas.html" class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-surface-variant text-on-surface-variant transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-md active:scale-95" title="Ver alertas archivadas" aria-label="Ver alertas archivadas"><span class="material-symbols-outlined">archive</span></a>
           <button id="agregar-recordatorio" class="flex items-center gap-1 rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-white transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-md active:scale-95"><span class="material-symbols-outlined text-base">add_alert</span>Recordatorio</button>
         </div>
       </div>
@@ -72,6 +78,9 @@
       </label>
       <label class="block text-sm font-semibold">Título
         <input id="recordatorio-titulo" type="text" required maxlength="120" placeholder="Ej: Dar medicamento a Michi" class="mt-1 w-full rounded-xl border border-surface-variant px-3 py-2">
+      </label>
+      <label id="recordatorio-gato-contenedor" class="block text-sm font-semibold">Gato
+        <select id="recordatorio-gato" class="mt-1 w-full rounded-xl border border-surface-variant px-3 py-2"></select>
       </label>
       <label class="flex items-center gap-2 text-sm"><input id="recordatorio-notificar" type="checkbox" checked> Avisarme cuando llegue la hora</label>
       <div class="flex justify-end gap-2">
@@ -114,7 +123,9 @@
   <script>
     const $ = s => document.querySelector(s);
     const hoy = new Date();
-    const fechaInicial = new URLSearchParams(location.search).get('fecha');
+    const parametrosIniciales = new URLSearchParams(location.search);
+    const fechaInicial = parametrosIniciales.get('fecha');
+    const macInicial = parametrosIniciales.get('gato') || parametrosIniciales.get('mac') || 'all';
     const fechaInicialValida = /^\d{4}-\d{2}-\d{2}$/.test(fechaInicial || '') ? new Date(`${fechaInicial}T00:00:00`) : null;
     let vista = fechaInicialValida ? new Date(fechaInicialValida.getFullYear(), fechaInicialValida.getMonth(), 1) : new Date(hoy.getFullYear(), hoy.getMonth(), 1);
     let diaSeleccionado = null;
@@ -123,6 +134,8 @@
     let alertasActuales = [];
     let alertaParaComentar = null;
     let alertaSeleccionada = null;
+    let gatos = [];
+    let macSeleccionada = 'all';
 
     const modalBorrado = $('#confirmar-borrado');
     const checkBorrado = $('#confirmacion-borrado');
@@ -138,6 +151,53 @@
     const claveDia = fecha => `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')}`;
     const fechaTexto = valor => new Date(valor).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' });
     const horaCorta = valor => new Date(valor).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+    const nombreGato = mac => gatos.find(gato => gato.mac.toUpperCase() === String(mac || '').toUpperCase())?.nombre || 'Mascota';
+
+    function urlConGato(path) {
+      const url = new URL(path, location.href);
+      if (macSeleccionada === 'all') url.searchParams.delete('gato');
+      else url.searchParams.set('gato', macSeleccionada);
+      url.searchParams.delete('mac');
+      return `${url.pathname}${url.search}`;
+    }
+
+    function urlApi(path) {
+      const url = new URL(urlConGato(path), location.href);
+      url.searchParams.set('t', String(Date.now()));
+      return `${url.pathname}${url.search}`;
+    }
+
+    async function cargarGatos() {
+      const res = await fetch(`/api/gatos?t=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      gatos = await res.json();
+      const selector = $('#filtro-gato');
+      selector.replaceChildren(new Option('Todos los gatos', 'all'));
+      [...gatos].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+        .forEach(gato => selector.add(new Option(gato.nombre, gato.mac)));
+      const solicitado = gatos.find(gato => gato.mac.toUpperCase() === macInicial.toUpperCase());
+      macSeleccionada = solicitado?.mac || 'all';
+      selector.value = macSeleccionada;
+      actualizarEnlaceArchivadas();
+      actualizarGatoRecordatorio();
+    }
+
+    function actualizarEnlaceArchivadas() {
+      document.querySelectorAll('nav a[href], header a[href], #alertas-archivadas').forEach(link => {
+        const url = new URL(link.href, location.href);
+        if (!['index.html', 'calendario.html', 'estadisticas.html', 'alertas.html', 'alertas-archivadas.html'].includes(url.pathname.split('/').pop())) return;
+        link.href = urlConGato(`${url.pathname}${url.search}${url.hash}`);
+      });
+    }
+
+    function actualizarGatoRecordatorio() {
+      const selector = $('#recordatorio-gato');
+      selector.replaceChildren(new Option('Selecciona un gato', ''));
+      gatos.forEach(gato => selector.add(new Option(gato.nombre, gato.mac)));
+      if (macSeleccionada !== 'all') selector.value = macSeleccionada;
+      $('#recordatorio-gato-contenedor').hidden = macSeleccionada !== 'all';
+      selector.required = macSeleccionada === 'all';
+    }
 
     function nivel(alerta) {
       if (alerta.capa === 1) return 'Señal perdida';
@@ -167,8 +227,8 @@
       const mes = claveMes(vista);
       $('#titulo-mes').textContent = vista.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
       const [anomRes, recRes] = await Promise.all([
-        fetch(`/api/anomalias-por-dia?mes=${mes}&t=${Date.now()}`, { cache: 'no-store' }),
-        fetch(`/api/recordatorios?mes=${mes}&t=${Date.now()}`, { cache: 'no-store' }),
+        fetch(urlApi(`/api/anomalias-por-dia?mes=${mes}`), { cache: 'no-store' }),
+        fetch(urlApi(`/api/recordatorios?mes=${mes}`), { cache: 'no-store' }),
       ]);
       const anomalias = anomRes.ok ? await anomRes.json() : [];
       const recordatorios = recRes.ok ? await recRes.json() : [];
@@ -208,7 +268,7 @@
       const revisada = Boolean(alerta.revisada_en);
       return `<article data-alerta-id="${alerta.id}" class="relative cursor-pointer rounded-xl border ${revisada ? 'border-surface-variant bg-white' : 'border-error/30 bg-error-container'} p-3 pr-3 transition-shadow hover:shadow-md">
         <div class="flex gap-3"><span class="material-symbols-outlined ${revisada ? 'text-on-surface-variant' : 'text-error'}">${revisada ? 'check_circle' : 'warning'}</span>
-        <div class="flex-1"><div class="flex justify-between gap-2"><h3 class="font-semibold text-sm">${nivel(alerta)}</h3>${revisada ? '<span class="text-xs text-secondary">Revisada</span>' : ''}</div>
+        <div class="flex-1"><div class="flex justify-between gap-2"><h3 class="font-semibold text-sm">${nivel(alerta)}</h3>${macSeleccionada === 'all' ? `<span class="text-xs text-on-surface-variant">${nombreGato(alerta.mac)}</span>` : ''}${revisada ? '<span class="text-xs text-secondary">Revisada</span>' : ''}</div>
         <p class="text-sm mt-1">${alerta.descripcion}</p>
         <p class="text-xs text-on-surface-variant mt-1">${horaCorta(alerta.detectada_en)}</p>
         ${alerta.comentario ? `<p class="mt-2 text-xs bg-white/70 rounded-lg p-2">Nota: ${alerta.comentario}</p>` : ''}</div>
@@ -224,8 +284,8 @@
       $('#titulo-dia').textContent = fecha.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' });
 
       const [alertasRes, historialRes] = await Promise.all([
-        fetch(`/api/anomalias-dia/${clave}?t=${Date.now()}`, { cache: 'no-store' }),
-        fetch(`/api/historial-dia/${clave}?t=${Date.now()}`, { cache: 'no-store' }),
+        fetch(urlApi(`/api/anomalias-dia/${clave}`), { cache: 'no-store' }),
+        fetch(urlApi(`/api/historial-dia/${clave}`), { cache: 'no-store' }),
       ]);
       alertasActuales = alertasRes.ok ? await alertasRes.json() : [];
       $('#alertas-dia').innerHTML = alertasActuales.length
@@ -235,18 +295,18 @@
       $('#historial-dia').innerHTML = historial.length
         ? historial.map(e => `<article class="flex items-center gap-3 rounded-xl border border-surface-variant p-3">
             <span class="material-symbols-outlined text-secondary">${iconoZona(e.nombre_zona)}</span>
-            <div class="flex-1"><p class="text-sm font-semibold">${e.nombre_zona}</p><p class="text-xs text-on-surface-variant">${horaCorta(e.cambiado_en)} · ${duracionEntre(e.cambiado_en, e.fin)}</p></div>
+            <div class="flex-1"><p class="text-sm font-semibold">${e.nombre_zona}</p><p class="text-xs text-on-surface-variant">${macSeleccionada === 'all' ? `${nombreGato(e.mac)} · ` : ''}${horaCorta(e.cambiado_en)} · ${duracionEntre(e.cambiado_en, e.fin)}</p></div>
           </article>`).join('')
         : '<p class="text-sm text-on-surface-variant">Sin movimientos ese día.</p>';
 
       const recordatorios = recordatoriosPorDia.get(clave) || [];
       $('#recordatorios-dia').innerHTML = recordatorios.length
-        ? recordatorios.map(r => `<article class="flex items-center justify-between rounded-xl border border-surface-variant p-3"><div><p class="text-sm font-semibold">${r.titulo}</p><p class="text-xs text-on-surface-variant">${String(r.hora).slice(0, 5)} ${r.notificar ? '· Con aviso' : ''}</p></div><button data-id="${r.id}" class="borrar-recordatorio text-error"><span class="material-symbols-outlined text-lg">delete</span></button></article>`).join('')
+        ? recordatorios.map(r => `<article class="flex items-center justify-between rounded-xl border border-surface-variant p-3"><div><p class="text-sm font-semibold">${r.titulo}</p><p class="text-xs text-on-surface-variant">${macSeleccionada === 'all' ? `${nombreGato(r.mac)} · ` : ''}${String(r.hora).slice(0, 5)} ${r.notificar ? '· Con aviso' : ''}</p></div><button data-id="${r.id}" class="borrar-recordatorio text-error"><span class="material-symbols-outlined text-lg">delete</span></button></article>`).join('')
         : '<p class="text-sm text-on-surface-variant">Sin recordatorios ese día.</p>';
 
       $('#recordatorios-dia').querySelectorAll('.borrar-recordatorio').forEach(btn => {
         btn.addEventListener('click', async () => {
-          await fetch(`/api/recordatorios/${btn.dataset.id}`, { method: 'DELETE' });
+          await fetch(urlApi(`/api/recordatorios/${btn.dataset.id}`), { method: 'DELETE' });
           await cargarMes();
           seleccionarDia(clave);
         });
@@ -301,7 +361,7 @@
         return;
       }
       if (accion === 'eliminar-nota') {
-        const res = await fetch(`/api/anomalias/${alertaSeleccionada.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ accion: 'comentar', comentario: '' }) });
+        const res = await fetch(urlApi(`/api/anomalias/${alertaSeleccionada.id}`), { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ accion: 'comentar', comentario: '' }) });
         if (!res.ok) { alert('No se pudo eliminar la nota.'); return; }
         dialogoDetalle.close();
         await seleccionarDia(diaSeleccionado);
@@ -309,7 +369,7 @@
         return;
       }
       if (accion === 'revisar') {
-        const res = await fetch(`/api/anomalias/${alertaSeleccionada.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ accion: 'revisar' }) });
+        const res = await fetch(urlApi(`/api/anomalias/${alertaSeleccionada.id}`), { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ accion: 'revisar' }) });
         if (!res.ok) { alert('No se pudo marcar como revisada.'); return; }
         dialogoDetalle.close();
         await seleccionarDia(diaSeleccionado);
@@ -317,7 +377,7 @@
         return;
       }
       if (accion === 'archivar') {
-        const res = await fetch(`/api/anomalias/${alertaSeleccionada.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ accion: 'archivar' }) });
+        const res = await fetch(urlApi(`/api/anomalias/${alertaSeleccionada.id}`), { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ accion: 'archivar' }) });
         if (!res.ok) { alert('No se pudo archivar la alerta.'); return; }
         dialogoDetalle.close();
         await seleccionarDia(diaSeleccionado);
@@ -337,7 +397,7 @@
     formularioComentario.addEventListener('submit', async event => {
       event.preventDefault();
       if (!alertaParaComentar || !textoComentario.value.trim()) return;
-      const res = await fetch(`/api/anomalias/${alertaParaComentar}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ accion: 'comentar', comentario: textoComentario.value.trim() }) });
+      const res = await fetch(urlApi(`/api/anomalias/${alertaParaComentar}`), { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ accion: 'comentar', comentario: textoComentario.value.trim() }) });
       if (!res.ok) { alert('No se pudo guardar el comentario.'); return; }
       dialogoComentario.close();
       if (alertaSeleccionada && String(alertaSeleccionada.id) === alertaParaComentar) {
@@ -352,7 +412,7 @@
     aceptarBorrado.addEventListener('click', async event => {
       event.preventDefault();
       if (!checkBorrado.checked) return;
-      const res = await fetch(`/api/anomalias/${aceptarBorrado.dataset.id}`, { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ confirmar: true }) });
+      const res = await fetch(urlApi(`/api/anomalias/${aceptarBorrado.dataset.id}`), { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ confirmar: true }) });
       modalBorrado.close();
       if (!res.ok) alert('No se pudo borrar la alerta.');
       await seleccionarDia(diaSeleccionado);
@@ -364,6 +424,7 @@
 
     $('#agregar-recordatorio').addEventListener('click', () => {
       if (!diaSeleccionado) return;
+      actualizarGatoRecordatorio();
       $('#recordatorio-fecha').value = diaSeleccionado;
       $('#recordatorio-hora').value = '';
       $('#recordatorio-titulo').value = '';
@@ -379,8 +440,9 @@
         hora: $('#recordatorio-hora').value,
         titulo: $('#recordatorio-titulo').value,
         notificar: $('#recordatorio-notificar').checked,
+        mac: macSeleccionada === 'all' ? $('#recordatorio-gato').value : macSeleccionada,
       };
-      if (!cuerpo.fecha || !cuerpo.hora || !cuerpo.titulo.trim()) { alert('Completa fecha, hora y título.'); return; }
+      if (!cuerpo.fecha || !cuerpo.hora || !cuerpo.titulo.trim() || !cuerpo.mac) { alert('Completa fecha, hora, título y gato.'); return; }
       const res = await fetch('/api/recordatorios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
       if (!res.ok) { const err = await res.json().catch(() => ({})); alert(err.error || 'No se pudo guardar el recordatorio.'); return; }
       $('#dialogo-recordatorio').close();
@@ -390,9 +452,28 @@
 
     if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
 
-    cargarMes().then(() => {
+    $('#filtro-gato').addEventListener('change', async event => {
+      macSeleccionada = event.target.value;
+      const url = new URL(location.href);
+      url.searchParams.delete('mac');
+      if (macSeleccionada === 'all') url.searchParams.delete('gato');
+      else url.searchParams.set('gato', macSeleccionada);
+      history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+      actualizarEnlaceArchivadas();
+      actualizarGatoRecordatorio();
+      await cargarMes();
+      if (diaSeleccionado) await seleccionarDia(diaSeleccionado);
+    });
+
+    async function iniciarAgenda() {
+      await cargarGatos();
+      await cargarMes();
       if (fechaInicialValida) seleccionarDia(fechaInicial);
-    }).catch(console.error);
+    }
+    iniciarAgenda().catch(error => {
+      console.error('No se pudo iniciar la agenda:', error);
+      $('#alertas-dia').innerHTML = '<p class="text-sm text-error">No se pudo cargar la agenda. Intenta de nuevo.</p>';
+    });
     setInterval(() => cargarMes().catch(console.error), 30000);
   </script>
   <script>window.addEventListener('load', () => document.body.classList.add('ui-ready')); setTimeout(() => document.body.classList.add('ui-ready'), 1500);</script>

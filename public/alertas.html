@@ -21,11 +21,12 @@
     <div class="mb-6"><h2 class="font-headline text-3xl font-semibold">Qué está pasando</h2><p class="text-on-surface-variant mt-1">Señales detectadas por las capas de análisis.</p></div>
     <div class="rounded-xl bg-surface-container-low p-4 mb-4 space-y-3">
       <div class="flex flex-wrap gap-2">
+        <select id="filtro-gato" class="bg-white px-3 py-2 rounded-xl shadow-sm text-on-surface font-body border border-surface-variant focus:ring-2 focus:ring-primary" aria-label="Filtrar alertas por gato"><option value="all">Todos los gatos</option></select>
         <input id="desde" type="date" class="bg-surface-container-low px-3 py-2 rounded-xl shadow-sm text-on-surface font-body border-0 focus:ring-2 focus:ring-primary" aria-label="Desde">
         <input id="hasta" type="date" class="bg-surface-container-low px-3 py-2 rounded-xl shadow-sm text-on-surface font-body border-0 focus:ring-2 focus:ring-primary" aria-label="Hasta">
         <select id="estado" class="bg-surface-container-low px-4 py-2 rounded-xl shadow-sm text-on-surface font-body border-0 focus:ring-2 focus:ring-primary"><option value="">Todas</option><option value="false">No revisadas</option><option value="true">Revisadas</option></select>
         <button id="filtrar" class="bg-primary text-white px-4 py-2 rounded-xl shadow-sm">Filtrar</button>
-        <a href="alertas-archivadas.html" class="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-surface-container-low shadow-sm" title="Ver alertas archivadas" aria-label="Ver alertas archivadas"><span class="material-symbols-outlined">archive</span></a>
+        <a id="alertas-archivadas" href="alertas-archivadas.html" class="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-surface-container-low shadow-sm" title="Ver alertas archivadas" aria-label="Ver alertas archivadas"><span class="material-symbols-outlined">archive</span></a>
       </div>
       <div id="resumen">Cargando alertas...</div>
     </div>
@@ -57,6 +58,7 @@
     <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="estadisticas.html"><span class="material-symbols-outlined mb-1 text-[24px]">analytics</span><span class="text-xs">Estadísticas</span></a><a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1 scale-90 transition-all" href="calendario.html"><span class="material-symbols-outlined mb-1 text-[24px]" style="font-variation-settings: 'FILL' 1;">calendar_month</span><span class="text-xs">Agenda</span></a><a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="dispositivos.html"><span class="material-symbols-outlined mb-1 text-[24px]">wifi_tethering</span><span class="text-xs">Dispositivos</span></a>    <a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:bg-surface-container-high rounded-full transition-colors" href="perfil.html"><span class="material-symbols-outlined mb-1 text-[24px]">account_circle</span><span class="text-xs">Cuenta</span></a>
   </nav>
   <script>
+    const $ = selector => document.querySelector(selector);
     const lista = document.querySelector('#lista');
     const resumen = document.querySelector('#resumen');
     const desde = document.querySelector('#desde');
@@ -74,6 +76,40 @@
     let alertaParaComentar = null;
     let alertaSeleccionada = null;
     let alertasActuales = [];
+    let gatos = [];
+    const macInicial = new URLSearchParams(location.search).get('gato') || 'all';
+    let macSeleccionada = 'all';
+    const nombreGato = mac => gatos.find(gato => gato.mac.toUpperCase() === String(mac || '').toUpperCase())?.nombre || 'Mascota';
+    function urlPagina(path) {
+      const url = new URL(path, location.href);
+      if (macSeleccionada === 'all') url.searchParams.delete('gato');
+      else url.searchParams.set('gato', macSeleccionada);
+      return `${url.pathname}${url.search}${url.hash}`;
+    }
+    function urlApi(path) {
+      const url = new URL(urlPagina(path), location.href);
+      url.searchParams.set('t', String(Date.now()));
+      return `${url.pathname}${url.search}`;
+    }
+    function actualizarEnlacesGato() {
+      document.querySelectorAll('nav a[href], header a[href], #alertas-archivadas').forEach(link => {
+        const url = new URL(link.href, location.href);
+        if (!['index.html', 'calendario.html', 'estadisticas.html', 'alertas.html', 'alertas-archivadas.html'].includes(url.pathname.split('/').pop())) return;
+        link.href = urlPagina(`${url.pathname}${url.search}${url.hash}`);
+      });
+    }
+    async function cargarGatos() {
+      const res = await fetch(`/api/gatos?t=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      gatos = await res.json();
+      const selector = $('#filtro-gato');
+      selector.replaceChildren(new Option('Todos los gatos', 'all'));
+      [...gatos].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+        .forEach(gato => selector.add(new Option(gato.nombre, gato.mac)));
+      macSeleccionada = gatos.find(gato => gato.mac.toUpperCase() === macInicial.toUpperCase())?.mac || 'all';
+      selector.value = macSeleccionada;
+      actualizarEnlacesGato();
+    }
     function fecha(valor) { return new Date(valor).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' }); }
     function duracion(segundos) {
       const minutos = Math.max(0, Number(segundos || 0) / 60);
@@ -107,19 +143,31 @@
     }
     async function cargar() {
       try {
-        const params = new URLSearchParams({ ...(desde.value && { desde: desde.value }), ...(hasta.value && { hasta: hasta.value }), ...(estado.value && { revisada: estado.value }) });
-        const res = await fetch('/api/anomalias?' + params.toString()); if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const url = new URL(urlApi('/api/anomalias'), location.href);
+        if (desde.value) url.searchParams.set('desde', desde.value);
+        if (hasta.value) url.searchParams.set('hasta', hasta.value);
+        if (estado.value) url.searchParams.set('revisada', estado.value);
+        const res = await fetch(url); if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const alertas = await res.json(); alertasActuales = alertas; const activas = alertas.filter(a => !a.resuelta_en && a.ubicacion_actual !== false);
         const recientes = alertas.filter(a => Date.now() - new Date(a.detectada_en).getTime() < 24 * 60 * 60 * 1000);
         resumen.textContent = activas.length
           ? `${activas.length} alerta${activas.length === 1 ? '' : 's'} activa${activas.length === 1 ? '' : 's'}.`
           : recientes.length
             ? 'No hay alertas activas ahora, pero sí hubo una anomalía reciente. Revisa el historial.'
-            : 'No hay alertas activas. La rutina de Michi parece normal.';
-        lista.innerHTML = alertas.length ? alertas.map(tarjeta).join('') : '<p class="text-on-surface-variant">Todavía no hay alertas registradas.</p>';
+            : `No hay alertas activas. ${macSeleccionada === 'all' ? 'No se detectan anomalías recientes.' : `La rutina de ${nombreGato(macSeleccionada)} parece normal.`}`;
+        lista.innerHTML = alertas.length ? alertas.map(alerta => tarjeta(alerta) + (macSeleccionada === 'all' ? `<p class="px-4 -mt-2 text-xs font-semibold text-on-surface-variant">${nombreGato(alerta.mac)}</p>` : '')).join('') : '<p class="text-on-surface-variant">Todavía no hay alertas registradas.</p>';
       } catch (err) { resumen.textContent = 'No se pudieron cargar las alertas.'; console.error(err); }
     }
     document.querySelector('#filtrar').onclick = cargar;
+    $('#filtro-gato').addEventListener('change', async event => {
+      macSeleccionada = event.target.value;
+      const url = new URL(location.href);
+      if (macSeleccionada === 'all') url.searchParams.delete('gato');
+      else url.searchParams.set('gato', macSeleccionada);
+      history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+      actualizarEnlacesGato();
+      await cargar();
+    });
     function abrirDetalle(alerta) {
       alertaSeleccionada = alerta;
       const revisada = Boolean(alerta.revisada_en);
@@ -156,8 +204,8 @@
       }
       const body = { accion };
       const res = accion === 'borrar'
-        ? await fetch(`/api/anomalias/${button.dataset.id}`, { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ confirmar: true }) })
-        : await fetch(`/api/anomalias/${button.dataset.id}`, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        ? await fetch(urlApi(`/api/anomalias/${button.dataset.id}`), { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ confirmar: true }) })
+        : await fetch(urlApi(`/api/anomalias/${button.dataset.id}`), { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
       if (!res.ok) alert('No se pudo actualizar la alerta.');
       await cargar();
     });
@@ -179,7 +227,7 @@
         return;
       }
       if (accion === 'eliminar-nota') {
-        const res = await fetch(`/api/anomalias/${alertaSeleccionada.id}`, {
+        const res = await fetch(urlApi(`/api/anomalias/${alertaSeleccionada.id}`), {
           method: 'PATCH',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({ accion: 'comentar', comentario: '' })
@@ -196,7 +244,7 @@
     formularioComentario.addEventListener('submit', async event => {
       event.preventDefault();
       if (!alertaParaComentar || !textoComentario.value.trim()) return;
-      const res = await fetch(`/api/anomalias/${alertaParaComentar}`, {
+      const res = await fetch(urlApi(`/api/anomalias/${alertaParaComentar}`), {
         method: 'PATCH',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ accion: 'comentar', comentario: textoComentario.value.trim() })
@@ -217,12 +265,13 @@
     aceptarBorrado.addEventListener('click', async event => {
       event.preventDefault();
       if (!checkBorrado.checked) return;
-      const res = await fetch(`/api/anomalias/${aceptarBorrado.dataset.id}`, { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ confirmar: true }) });
+      const res = await fetch(urlApi(`/api/anomalias/${aceptarBorrado.dataset.id}`), { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ confirmar: true }) });
       modalBorrado.close();
       if (!res.ok) alert('No se pudo borrar la alerta.');
       await cargar();
     });
-    cargar(); setInterval(cargar, 30000);
+    cargarGatos().then(cargar).catch(err => { resumen.textContent = 'No se pudieron cargar las alertas.'; console.error(err); });
+    setInterval(cargar, 30000);
   </script>
   <script>window.addEventListener('load', () => document.body.classList.add('ui-ready')); setTimeout(() => document.body.classList.add('ui-ready'), 1500);</script>
 <script src="/motion.js"></script>

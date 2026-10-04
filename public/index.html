@@ -198,6 +198,17 @@ function urlApiHome(path) {
   return `${url.pathname}${url.search}`;
 }
 
+function actualizarEnlacesGato() {
+  document.querySelectorAll('nav a[href], header a[href]').forEach(link => {
+    const url = new URL(link.href, window.location.href);
+    if (!['index.html', 'calendario.html', 'estadisticas.html', 'alertas.html', 'alertas-archivadas.html'].includes(url.pathname.split('/').pop())) return;
+    url.searchParams.delete('mac');
+    if (gatoSeleccionado() === 'all') url.searchParams.delete('gato');
+    else url.searchParams.set('gato', gatoSeleccionado());
+    link.href = `${url.pathname}${url.search}${url.hash}`;
+  });
+}
+
 function actualizarTitulosGato() {
   const mac = gatoSeleccionado();
   const gato = gatosActuales.find(item => item.mac.toUpperCase() === mac.toUpperCase());
@@ -218,6 +229,7 @@ function seleccionarGato(mac) {
   if (mac === 'all') url.searchParams.delete('gato');
   else url.searchParams.set('gato', mac);
   window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+  actualizarEnlacesGato();
 }
 
 function iconoZona(nombre) {
@@ -261,6 +273,7 @@ async function cargarGatos() {
   const gatoValido = gatosActuales.find(gato => gato.mac.toUpperCase() === (macSolicitada || '').toUpperCase());
   selector.value = gatoValido?.mac || 'all';
   actualizarTitulosGato();
+  actualizarEnlacesGato();
 }
 
 async function actualizarEstado() {

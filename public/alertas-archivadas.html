@@ -3,18 +3,54 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="manifest" href="/manifest.webmanifest"><link rel="stylesheet" href="/ui-polish.css"><meta name="theme-color" content="#0f766e"><title>Alertas archivadas</title>
 <script src="https://cdn.tailwindcss.com"></script><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined&family=Quicksand:wght@400;600;700&display=swap" rel="stylesheet"></head>
 <body class="bg-[#f5fbfa] text-[#173231] font-['Quicksand'] min-h-screen p-5 pb-24">
-<main class="max-w-3xl mx-auto"><a href="alertas.html" class="text-[#0f766e]">← Volver a alertas</a><h1 class="text-3xl font-bold mt-6">Alertas archivadas</h1><section id="lista" class="space-y-3 mt-5">Cargando...</section></main>
+<main class="max-w-3xl mx-auto"><a id="volver-alertas" href="alertas.html" class="text-[#0f766e]">← Volver a alertas</a><h1 class="text-3xl font-bold mt-6">Alertas archivadas</h1><label class="mt-4 flex flex-wrap items-center gap-2 text-sm font-semibold">Ver alertas de<select id="filtro-gato" class="rounded-xl border border-slate-300 bg-white px-3 py-2"><option value="all">Todos los gatos</option></select></label><section id="lista" class="space-y-3 mt-5">Cargando...</section></main>
 <script>
+const gatos = [];
+const selectorGato = document.querySelector('#filtro-gato');
+const macInicial = new URLSearchParams(location.search).get('gato') || 'all';
+let macSeleccionada = 'all';
+function urlApi(path) {
+  const url = new URL(path, location.href);
+  if (macSeleccionada === 'all') url.searchParams.delete('gato');
+  else url.searchParams.set('gato', macSeleccionada);
+  return `${url.pathname}${url.search}`;
+}
+function actualizarEnlacesGato() {
+  document.querySelectorAll('nav a[href], #volver-alertas').forEach(link => {
+    const url = new URL(link.href, location.href);
+    if (!['index.html', 'calendario.html', 'estadisticas.html', 'alertas.html', 'alertas-archivadas.html'].includes(url.pathname.split('/').pop())) return;
+    link.href = urlApi(`${url.pathname}${url.search}${url.hash}`);
+  });
+}
 async function cargar() {
   const lista = document.querySelector('#lista');
-  const res = await fetch('/api/anomalias?archivada=true');
+  const res = await fetch(urlApi('/api/anomalias?archivada=true'));
   const alertas = await res.json();
-  lista.innerHTML = alertas.length ? alertas.map(a => `<article class="rounded-xl border bg-white p-4"><div class="flex gap-3"><span class="material-symbols-outlined">archive</span><div class="flex-1"><h2 class="font-bold">Alerta ${a.revisada_en ? '<span class="text-emerald-700">· Revisada</span>' : ''}</h2><p>${a.descripcion}</p><p class="text-sm text-slate-500 mt-2">Detectada: ${new Date(a.detectada_en).toLocaleString('es')}</p>${a.comentario ? `<p class="text-sm mt-2">Nota: ${a.comentario}</p>` : ''}<button data-id="${a.id}" class="mt-3 rounded-xl bg-orange-100 px-3 py-2 text-sm">Desarchivar</button></div></div></article>`).join('') : '<p>No hay alertas archivadas.</p>';
+  lista.innerHTML = alertas.length ? alertas.map(a => `<article class="rounded-xl border bg-white p-4"><div class="flex gap-3"><span class="material-symbols-outlined">archive</span><div class="flex-1"><h2 class="font-bold">Alerta ${macSeleccionada === 'all' ? `· ${gatos.find(g => g.mac.toUpperCase() === a.mac.toUpperCase())?.nombre || 'Mascota'}` : ''} ${a.revisada_en ? '<span class="text-emerald-700">· Revisada</span>' : ''}</h2><p>${a.descripcion}</p><p class="text-sm text-slate-500 mt-2">Detectada: ${new Date(a.detectada_en).toLocaleString('es')}</p>${a.comentario ? `<p class="text-sm mt-2">Nota: ${a.comentario}</p>` : ''}<button data-id="${a.id}" class="mt-3 rounded-xl bg-orange-100 px-3 py-2 text-sm">Desarchivar</button></div></div></article>`).join('') : '<p>No hay alertas archivadas.</p>';
 }
-cargar();
+async function iniciar() {
+  const res = await fetch(`/api/gatos?t=${Date.now()}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  gatos.push(...await res.json());
+  gatos.sort((a,b) => a.nombre.localeCompare(b.nombre,'es')).forEach(g => selectorGato.add(new Option(g.nombre,g.mac)));
+  macSeleccionada = gatos.find(g => g.mac.toUpperCase() === macInicial.toUpperCase())?.mac || 'all';
+  selectorGato.value = macSeleccionada;
+  actualizarEnlacesGato();
+  await cargar();
+}
+iniciar().catch(error => { document.querySelector('#lista').textContent = 'No se pudieron cargar las alertas archivadas.'; console.error(error); });
+selectorGato.addEventListener('change', async () => {
+  macSeleccionada = selectorGato.value;
+  const url = new URL(location.href);
+  if (macSeleccionada === 'all') url.searchParams.delete('gato');
+  else url.searchParams.set('gato', macSeleccionada);
+  history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+  actualizarEnlacesGato();
+  await cargar();
+});
 document.querySelector('#lista').addEventListener('click', async event => {
   const button = event.target.closest('button[data-id]'); if (!button) return;
-  const res = await fetch(`/api/anomalias/${button.dataset.id}`, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ accion: 'desarchivar' }) });
+  const res = await fetch(urlApi(`/api/anomalias/${button.dataset.id}`), { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ accion: 'desarchivar' }) });
   if (res.ok) cargar();
 });
 </script>

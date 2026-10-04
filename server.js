@@ -252,14 +252,19 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-async function obtenerMacFiltroHome(req) {
-  const valor = req.query.gato || req.query.mac || req.query.mascota;
-  if (!valor || ['all', 'todos', 'todas', 'todo'].includes(String(valor).trim().toLowerCase())) return null;
+async function obtenerMacAsignada(valor) {
+  if (!valor) return null;
   const { rows } = await pool.query(
     'SELECT UPPER(TRIM(mac)) AS mac FROM beacons WHERE asignado = true AND UPPER(TRIM(mac)) = UPPER(TRIM($1)) LIMIT 1',
     [String(valor).trim()]
   );
-  return rows[0]?.mac || '__UNREGISTERED_BEACON__';
+  return rows[0]?.mac || null;
+}
+
+async function obtenerMacFiltroHome(req) {
+  const valor = req.query.gato || req.query.mac || req.query.mascota;
+  if (!valor || ['all', 'todos', 'todas', 'todo'].includes(String(valor).trim().toLowerCase())) return null;
+  return await obtenerMacAsignada(valor) || '__UNREGISTERED_BEACON__';
 }
 
 app.get('/api/gatos', async (_req, res) => {
@@ -456,7 +461,7 @@ app.get('/api/anomalias', async (req, res) => {
     if (revisada === 'true') condiciones.push('revisada_en IS NOT NULL');
     if (revisada === 'false') condiciones.push('revisada_en IS NULL');
     const { rows } = await pool.query(
-      `SELECT id, tipo, descripcion, capa, z_score, if_score, detectada_en, resuelta_en,
+      `SELECT id, mac, tipo, descripcion, capa, z_score, if_score, detectada_en, resuelta_en,
               revisada_en, archivada_en, comentario, falso_positivo,
               (SELECT z.nombre_zona
                FROM estado_actual e
@@ -498,17 +503,21 @@ app.get('/api/anomalias', async (req, res) => {
 // Resumen por día para pintar el calendario: cuántas alertas hubo cada día del mes.
 app.get('/api/anomalias-por-dia', async (req, res) => {
   try {
-    const mac = process.env.TARGET_MAC || 'dd:88:00:00:3e:15';
+    const mac = await obtenerMacFiltroHome(req);
     const mes = /^\d{4}-\d{2}$/.test(String(req.query.mes || '')) ? String(req.query.mes) : null;
     const { rows } = await pool.query(
       `SELECT (detectada_en AT TIME ZONE 'America/Bogota')::date AS fecha,
               COUNT(*)::int AS total,
               COUNT(*) FILTER (WHERE falso_positivo IS NOT TRUE)::int AS relevantes
        FROM anomalias
-       WHERE UPPER(mac) = UPPER($1)
+       WHERE EXISTS (
+         SELECT 1 FROM beacons b
+         WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(anomalias.mac))
+       )
+         AND ($1::text IS NULL OR UPPER(TRIM(mac)) = UPPER(TRIM($1)))
          AND archivada_en IS NULL
-         AND ($2::date IS NULL OR (detectada_en AT TIME ZONE 'America/Bogota') >= $2::date)
-         AND ($2::date IS NULL OR (detectada_en AT TIME ZONE 'America/Bogota') < ($2::date + interval '1 month'))
+         AND ($2::date IS NULL OR (detectada_en AT TIME ZONE 'America/Bogota')::date >= $2::date)
+         AND ($2::date IS NULL OR (detectada_en AT TIME ZONE 'America/Bogota')::date < ($2::date + interval '1 month'))
        GROUP BY fecha
        ORDER BY fecha`,
       [mac, mes ? `${mes}-01` : null]
@@ -523,13 +532,17 @@ app.get('/api/anomalias-por-dia', async (req, res) => {
 // Detalle de un día concreto: alertas de ese día (para el calendario).
 app.get('/api/anomalias-dia/:fecha', async (req, res) => {
   try {
-    const mac = process.env.TARGET_MAC || 'dd:88:00:00:3e:15';
+    const mac = await obtenerMacFiltroHome(req);
     const fecha = req.params.fecha;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return res.status(400).json({ error: 'Fecha inválida.' });
     const { rows } = await pool.query(
-      `SELECT id, tipo, descripcion, capa, z_score, if_score, detectada_en, resuelta_en, revisada_en, comentario, falso_positivo
+      `SELECT id, mac, tipo, descripcion, capa, z_score, if_score, detectada_en, resuelta_en, revisada_en, comentario, falso_positivo
        FROM anomalias
-       WHERE UPPER(mac) = UPPER($1)
+       WHERE EXISTS (
+         SELECT 1 FROM beacons b
+         WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(anomalias.mac))
+       )
+         AND ($1::text IS NULL OR UPPER(TRIM(mac)) = UPPER(TRIM($1)))
          AND archivada_en IS NULL
          AND (detectada_en AT TIME ZONE 'America/Bogota')::date = $2::date
        ORDER BY detectada_en DESC`,
@@ -545,12 +558,16 @@ app.get('/api/anomalias-dia/:fecha', async (req, res) => {
 // --- Recordatorios / agenda ---
 app.get('/api/recordatorios', async (req, res) => {
   try {
-    const mac = process.env.TARGET_MAC || 'dd:88:00:00:3e:15';
+    const mac = await obtenerMacFiltroHome(req);
     const mes = /^\d{4}-\d{2}$/.test(String(req.query.mes || '')) ? String(req.query.mes) : null;
     const { rows } = await pool.query(
-      `SELECT id, fecha, hora, titulo, notificar, notificado
+      `SELECT id, mac, fecha, hora, titulo, notificar, notificado
        FROM recordatorios
-       WHERE UPPER(mac) = UPPER($1)
+       WHERE EXISTS (
+         SELECT 1 FROM beacons b
+         WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(recordatorios.mac))
+       )
+         AND ($1::text IS NULL OR UPPER(TRIM(mac)) = UPPER(TRIM($1)))
          AND ($2::date IS NULL OR fecha >= $2::date)
          AND ($2::date IS NULL OR fecha < ($2::date + interval '1 month'))
        ORDER BY fecha, hora`,
@@ -565,8 +582,9 @@ app.get('/api/recordatorios', async (req, res) => {
 
 app.post('/api/recordatorios', async (req, res) => {
   try {
-    const mac = process.env.TARGET_MAC || 'dd:88:00:00:3e:15';
     const { fecha, hora, titulo, notificar } = req.body || {};
+    const mac = await obtenerMacAsignada(req.body?.mac || process.env.TARGET_MAC || 'dd:88:00:00:3e:15');
+    if (!mac) return res.status(400).json({ error: 'Selecciona un gato con beacon asignado.' });
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fecha || ''))) return res.status(400).json({ error: 'Falta la fecha (YYYY-MM-DD).' });
     if (!/^\d{2}:\d{2}$/.test(String(hora || ''))) return res.status(400).json({ error: 'Falta la hora (HH:MM).' });
     if (!String(titulo || '').trim()) return res.status(400).json({ error: 'Falta el título del recordatorio.' });
@@ -585,10 +603,13 @@ app.post('/api/recordatorios', async (req, res) => {
 
 app.patch('/api/recordatorios/:id', async (req, res) => {
   try {
-    const mac = process.env.TARGET_MAC || 'dd:88:00:00:3e:15';
+    const mac = await obtenerMacFiltroHome(req);
     const { notificar } = req.body || {};
     const { rowCount } = await pool.query(
-      'UPDATE recordatorios SET notificar = $1 WHERE id = $2 AND mac = $3',
+      `UPDATE recordatorios SET notificar = $1
+       WHERE id = $2
+         AND ($3::text IS NULL OR UPPER(TRIM(mac)) = UPPER(TRIM($3)))
+         AND EXISTS (SELECT 1 FROM beacons b WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(recordatorios.mac)))`,
       [notificar !== false, req.params.id, mac]
     );
     if (!rowCount) return res.status(404).json({ error: 'Recordatorio no encontrado.' });
@@ -601,8 +622,14 @@ app.patch('/api/recordatorios/:id', async (req, res) => {
 
 app.delete('/api/recordatorios/:id', async (req, res) => {
   try {
-    const mac = process.env.TARGET_MAC || 'dd:88:00:00:3e:15';
-    const { rowCount } = await pool.query('DELETE FROM recordatorios WHERE id = $1 AND mac = $2', [req.params.id, mac]);
+    const mac = await obtenerMacFiltroHome(req);
+    const { rowCount } = await pool.query(
+      `DELETE FROM recordatorios
+       WHERE id = $1
+         AND ($2::text IS NULL OR UPPER(TRIM(mac)) = UPPER(TRIM($2)))
+         AND EXISTS (SELECT 1 FROM beacons b WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(recordatorios.mac)))`,
+      [req.params.id, mac]
+    );
     if (!rowCount) return res.status(404).json({ error: 'Recordatorio no encontrado.' });
     res.json({ ok: true });
   } catch (err) {
@@ -643,13 +670,26 @@ app.patch('/api/anomalias/:id', async (req, res) => {
   const accion = req.body?.accion;
   if (!['revisar', 'archivar', 'desarchivar', 'comentar', 'falso_positivo'].includes(accion)) return res.status(400).json({ error: 'Acción no válida.' });
   try {
+    const mac = await obtenerMacFiltroHome(req);
     if (accion === 'comentar') {
-      const { rowCount } = await pool.query('UPDATE anomalias SET comentario = $1 WHERE id = $2 AND UPPER(mac) = UPPER($3)', [req.body.comentario || null, req.params.id, process.env.TARGET_MAC || 'dd:88:00:00:3e:15']);
+      const { rowCount } = await pool.query(
+        `UPDATE anomalias SET comentario = $1
+         WHERE id = $2
+           AND ($3::text IS NULL OR UPPER(TRIM(mac)) = UPPER(TRIM($3)))
+           AND EXISTS (SELECT 1 FROM beacons b WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(anomalias.mac)))`,
+        [req.body.comentario || null, req.params.id, mac]
+      );
       if (!rowCount) return res.status(404).json({ error: 'Alerta no encontrada.' });
       return res.json({ ok: true });
     }
     if (accion === 'falso_positivo') {
-      const { rowCount } = await pool.query('UPDATE anomalias SET falso_positivo = $1 WHERE id = $2 AND UPPER(mac) = UPPER($3)', [Boolean(req.body.valor), req.params.id, process.env.TARGET_MAC || 'dd:88:00:00:3e:15']);
+      const { rowCount } = await pool.query(
+        `UPDATE anomalias SET falso_positivo = $1
+         WHERE id = $2
+           AND ($3::text IS NULL OR UPPER(TRIM(mac)) = UPPER(TRIM($3)))
+           AND EXISTS (SELECT 1 FROM beacons b WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(anomalias.mac)))`,
+        [Boolean(req.body.valor), req.params.id, mac]
+      );
       if (!rowCount) return res.status(404).json({ error: 'Alerta no encontrada.' });
       return res.json({ ok: true });
     }
@@ -657,8 +697,10 @@ app.patch('/api/anomalias/:id', async (req, res) => {
     const valor = accion === 'desarchivar' ? null : 'now()';
     const { rowCount } = await pool.query(
       `UPDATE anomalias SET ${campo} = ${valor === null ? 'NULL' : `COALESCE(${campo}, now())`}
-       WHERE id = $1 AND UPPER(mac) = UPPER($2)`,
-      [req.params.id, process.env.TARGET_MAC || 'dd:88:00:00:3e:15']
+       WHERE id = $1
+         AND ($2::text IS NULL OR UPPER(TRIM(mac)) = UPPER(TRIM($2)))
+         AND EXISTS (SELECT 1 FROM beacons b WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(anomalias.mac)))`,
+      [req.params.id, mac]
     );
     if (!rowCount) return res.status(404).json({ error: 'Alerta no encontrada.' });
     res.json({ ok: true });
@@ -1031,9 +1073,13 @@ app.put('/api/configuracion-gato', async (req, res) => {
 app.delete('/api/anomalias/:id', async (req, res) => {
   if (req.body?.confirmar !== true) return res.status(400).json({ error: 'Confirmación requerida.' });
   try {
+    const mac = await obtenerMacFiltroHome(req);
     const { rowCount } = await pool.query(
-      'DELETE FROM anomalias WHERE id = $1 AND UPPER(mac) = UPPER($2)',
-      [req.params.id, process.env.TARGET_MAC || 'dd:88:00:00:3e:15']
+      `DELETE FROM anomalias
+       WHERE id = $1
+         AND ($2::text IS NULL OR UPPER(TRIM(mac)) = UPPER(TRIM($2)))
+         AND EXISTS (SELECT 1 FROM beacons b WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(anomalias.mac)))`,
+      [req.params.id, mac]
     );
     if (!rowCount) return res.status(404).json({ error: 'Alerta no encontrada.' });
     res.json({ ok: true });
@@ -1134,14 +1180,19 @@ app.get('/api/rutina-periodo', async (req, res) => {
     ? String(req.query.inicio)
     : null;
   try {
+    const mac = await obtenerMacFiltroHome(req);
     const { rows } = await pool.query(
       `WITH eventos AS (
-         SELECT nombre_zona, cambiado_en,
-                LEAD(cambiado_en) OVER (ORDER BY cambiado_en) AS siguiente
+         SELECT mac, nombre_zona, cambiado_en,
+               LEAD(cambiado_en) OVER (PARTITION BY mac ORDER BY cambiado_en) AS siguiente
          FROM historial_zona
-         WHERE UPPER(mac) = UPPER($1)
+         WHERE EXISTS (
+           SELECT 1 FROM beacons b
+           WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(historial_zona.mac))
+         )
+           AND ($1::text IS NULL OR UPPER(TRIM(mac)) = UPPER(TRIM($1)))
        )
-       SELECT (cambiado_en AT TIME ZONE 'America/Bogota')::date AS fecha,
+       SELECT mac, (cambiado_en AT TIME ZONE 'America/Bogota')::date AS fecha,
               nombre_zona,
               EXTRACT(HOUR FROM cambiado_en AT TIME ZONE 'America/Bogota')::int * 60 +
                 EXTRACT(MINUTE FROM cambiado_en AT TIME ZONE 'America/Bogota')::int AS inicio_min,
@@ -1158,7 +1209,7 @@ app.get('/api/rutina-periodo', async (req, res) => {
          AND (siguiente IS NULL OR siguiente > cambiado_en)
          AND (siguiente IS NULL OR (siguiente AT TIME ZONE 'America/Bogota')::date =
              (cambiado_en AT TIME ZONE 'America/Bogota')::date)`,
-      [process.env.TARGET_MAC || 'dd:88:00:00:3e:15', dias, inicio]
+      [mac, dias, inicio]
     );
     res.json(rows);
   } catch (err) {
@@ -1170,19 +1221,23 @@ app.get('/api/rutina-periodo', async (req, res) => {
 // Historial detallado de una hora concreta de un día (para el detalle al hacer click en la tabla de rutina por hora).
 app.get('/api/historial-hora/:fecha/:hora', async (req, res) => {
   try {
-    const mac = process.env.TARGET_MAC || 'dd:88:00:00:3e:15';
+    const mac = await obtenerMacFiltroHome(req);
     const fecha = req.params.fecha;
     const hora = Number(req.params.hora);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return res.status(400).json({ error: 'Fecha inválida.' });
     if (!Number.isInteger(hora) || hora < 0 || hora > 23) return res.status(400).json({ error: 'Hora inválida.' });
     const { rows } = await pool.query(
       `WITH eventos AS (
-         SELECT nombre_zona, cambiado_en,
-                LEAD(cambiado_en) OVER (ORDER BY cambiado_en) AS siguiente
+         SELECT mac, nombre_zona, cambiado_en,
+                LEAD(cambiado_en) OVER (PARTITION BY mac ORDER BY cambiado_en) AS siguiente
          FROM historial_zona
-         WHERE UPPER(mac) = UPPER($1)
+         WHERE EXISTS (
+           SELECT 1 FROM beacons b
+           WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(historial_zona.mac))
+         )
+           AND ($1::text IS NULL OR UPPER(TRIM(mac)) = UPPER(TRIM($1)))
        )
-       SELECT nombre_zona, cambiado_en,
+       SELECT mac, nombre_zona, cambiado_en,
               LEAST(COALESCE(siguiente, now()), (($2::date + (($3 + 1) || ' hours')::interval) AT TIME ZONE 'America/Bogota')) AS fin
        FROM eventos
        WHERE cambiado_en < (($2::date + (($3 + 1) || ' hours')::interval) AT TIME ZONE 'America/Bogota')
@@ -1200,17 +1255,21 @@ app.get('/api/historial-hora/:fecha/:hora', async (req, res) => {
 // Historial de movimientos de un día completo (para la Agenda).
 app.get('/api/historial-dia/:fecha', async (req, res) => {
   try {
-    const mac = process.env.TARGET_MAC || 'dd:88:00:00:3e:15';
+    const mac = await obtenerMacFiltroHome(req);
     const fecha = req.params.fecha;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return res.status(400).json({ error: 'Fecha inválida.' });
     const { rows } = await pool.query(
       `WITH eventos AS (
-         SELECT nombre_zona, cambiado_en,
-                LEAD(cambiado_en) OVER (ORDER BY cambiado_en) AS siguiente
+         SELECT mac, nombre_zona, cambiado_en,
+                LEAD(cambiado_en) OVER (PARTITION BY mac ORDER BY cambiado_en) AS siguiente
          FROM historial_zona
-         WHERE UPPER(mac) = UPPER($1)
+         WHERE EXISTS (
+           SELECT 1 FROM beacons b
+           WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(historial_zona.mac))
+         )
+           AND ($1::text IS NULL OR UPPER(TRIM(mac)) = UPPER(TRIM($1)))
        )
-       SELECT nombre_zona, cambiado_en,
+       SELECT mac, nombre_zona, cambiado_en,
               LEAST(COALESCE(siguiente, now()), (($2::date + interval '1 day') AT TIME ZONE 'America/Bogota')) AS fin
        FROM eventos
        WHERE cambiado_en < (($2::date + interval '1 day') AT TIME ZONE 'America/Bogota')
@@ -1232,6 +1291,7 @@ app.get('/api/estadisticas', async (req, res) => {
     : 0;
   const zona = 'America/Bogota';
   try {
+    const mac = await obtenerMacFiltroHome(req);
     const { rows } = await pool.query(
       `WITH limites AS (
          SELECT
@@ -1241,13 +1301,17 @@ app.get('/api/estadisticas', async (req, res) => {
            END AS inicio_local
        ),
        eventos AS (
-         SELECT nombre_zona, cambiado_en,
-                LEAD(cambiado_en) OVER (ORDER BY cambiado_en) AS siguiente
+         SELECT mac, nombre_zona, cambiado_en,
+               LEAD(cambiado_en) OVER (PARTITION BY mac ORDER BY cambiado_en) AS siguiente
          FROM historial_zona
-         WHERE UPPER(mac) = UPPER($1)
+         WHERE EXISTS (
+           SELECT 1 FROM beacons b
+           WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(historial_zona.mac))
+         )
+           AND ($1::text IS NULL OR UPPER(TRIM(mac)) = UPPER(TRIM($1)))
        ),
        segmentos AS (
-         SELECT nombre_zona,
+         SELECT mac, nombre_zona,
                 (cambiado_en AT TIME ZONE $3)::date AS fecha,
                 GREATEST(cambiado_en, inicio_local AT TIME ZONE $3) AS inicio,
                 LEAST(COALESCE(siguiente, now()), (inicio_local + CASE WHEN $2 = 'month' THEN interval '1 month' ELSE interval '7 days' END) AT TIME ZONE $3) AS fin
@@ -1255,21 +1319,25 @@ app.get('/api/estadisticas', async (req, res) => {
          WHERE cambiado_en < ((inicio_local + CASE WHEN $2 = 'month' THEN interval '1 month' ELSE interval '7 days' END) AT TIME ZONE $3)
            AND COALESCE(siguiente, now()) > (inicio_local AT TIME ZONE $3)
        )
-       SELECT nombre_zona,
+       SELECT mac, nombre_zona,
               ROUND(SUM(EXTRACT(EPOCH FROM (fin - inicio)) / 60))::int AS minutos,
               COUNT(DISTINCT fecha)::int AS dias,
               MIN(fecha) AS primera_fecha,
               MAX(fecha) AS ultima_fecha
        FROM segmentos
        WHERE fin > inicio
-       GROUP BY nombre_zona
+       GROUP BY mac, nombre_zona
        ORDER BY minutos DESC`,
-      [process.env.TARGET_MAC || 'dd:88:00:00:3e:15', modo, zona, desplazamiento]
+      [mac, modo, zona, desplazamiento]
     );
-    const { rows: config } = await pool.query(
-      'SELECT nombre FROM gato_config WHERE UPPER(mac) = UPPER($1)',
-      [process.env.TARGET_MAC || 'dd:88:00:00:3e:15']
-    );
+    const nombre = mac
+      ? await pool.query(
+       `SELECT COALESCE(nombre_mascota, nombre, 'Mascota') AS nombre
+        FROM beacons WHERE asignado = true AND UPPER(TRIM(mac)) = UPPER(TRIM($1))
+        ORDER BY ultimo_visto DESC NULLS LAST, updated_at DESC LIMIT 1`,
+       [mac]
+      )
+      : { rows: [] };
     const { rows: periodo } = await pool.query(
       `SELECT CASE WHEN $1 = 'month'
         THEN date_trunc('month', now() AT TIME ZONE $2) + ($3 * interval '1 month')
@@ -1281,7 +1349,13 @@ app.get('/api/estadisticas', async (req, res) => {
        END AS fin`,
       [modo, zona, desplazamiento]
     );
-    res.json({ nombre: config[0]?.nombre || 'Michi', modo, inicio: periodo[0].inicio, fin: periodo[0].fin, zonas: rows });
+    res.json({
+      nombre: mac ? nombre.rows[0]?.nombre || 'Mascota' : 'Todos los gatos',
+      modo,
+      inicio: periodo[0].inicio,
+      fin: periodo[0].fin,
+      zonas: rows
+    });
   } catch (err) {
     console.error('[ERROR] /api/estadisticas:', err.message);
     res.status(500).json({ error: err.message });
