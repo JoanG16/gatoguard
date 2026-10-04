@@ -59,7 +59,14 @@
         <div id="alertas-dia" class="space-y-2"><p class="text-sm text-on-surface-variant">Sin alertas ese día.</p></div>
       </div>
       <div id="tab-historial" class="hidden">
-        <div id="historial-dia" class="space-y-2"><p class="text-sm text-on-surface-variant">Sin movimientos ese día.</p></div>
+        <div class="mb-3 flex items-center justify-between gap-3">
+          <p id="resumen-movimientos-dia" class="text-sm text-on-surface-variant"></p>
+          <details id="detalle-tiempo-lugares" class="relative">
+            <summary class="cursor-pointer list-none whitespace-nowrap rounded-lg px-2 py-1 text-sm font-semibold text-primary hover:bg-surface-container-low focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Tiempo por lugar</summary>
+            <div id="resumen-lugares-dia" class="absolute right-0 z-10 mt-2 w-[min(18rem,80vw)] rounded-xl border border-surface-variant bg-white p-4 shadow-lg"></div>
+          </details>
+        </div>
+        <div id="historial-dia" class="divide-y divide-surface-variant"><p class="py-4 text-sm text-on-surface-variant">Sin movimientos ese día.</p></div>
       </div>
       <div id="tab-recordatorios" class="hidden">
         <div id="recordatorios-dia" class="space-y-2"><p class="text-sm text-on-surface-variant">Sin recordatorios ese día.</p></div>
@@ -216,7 +223,12 @@
     }
 
     function duracionEntre(inicioISO, finISO) {
-      const min = Math.round((new Date(finISO).getTime() - new Date(inicioISO).getTime()) / 60000);
+      const milisegundos = new Date(finISO).getTime() - new Date(inicioISO).getTime();
+      if (milisegundos < 60000) return `${Math.max(1, Math.round(milisegundos / 1000))} s`;
+      return duracionMinutos(Math.round(milisegundos / 60000));
+    }
+
+    function duracionMinutos(min) {
       if (min < 1) return 'menos de 1 min';
       if (min < 60) return `${min} min`;
       const horas = Math.floor(min / 60);
@@ -292,10 +304,36 @@
         ? alertasActuales.map(tarjetaAlerta).join('')
         : '<p class="text-sm text-on-surface-variant">Sin alertas ese día.</p>';
       const historial = historialRes.ok ? await historialRes.json() : [];
-      $('#historial-dia').innerHTML = historial.length
-        ? historial.map(e => `<article class="flex items-center gap-3 rounded-xl border border-surface-variant p-3">
-            <span class="material-symbols-outlined text-secondary">${iconoZona(e.nombre_zona)}</span>
-            <div class="flex-1"><p class="text-sm font-semibold">${e.nombre_zona}</p><p class="text-xs text-on-surface-variant">${macSeleccionada === 'all' ? `${nombreGato(e.mac)} · ` : ''}${horaCorta(e.cambiado_en)} · ${duracionEntre(e.cambiado_en, e.fin)}</p></div>
+      const historialOrdenado = historial.slice().sort((a, b) => new Date(a.cambiado_en) - new Date(b.cambiado_en));
+      const resumenLugares = new Map();
+      historialOrdenado.forEach(evento => {
+        const claveLugar = `${evento.mac}|${evento.nombre_zona}`;
+        const resumen = resumenLugares.get(claveLugar) || {
+          mac: evento.mac,
+          nombre_zona: evento.nombre_zona,
+          minutos: 0,
+        };
+        resumen.minutos += Math.max(0, (new Date(evento.fin).getTime() - new Date(evento.cambiado_en).getTime()) / 60000);
+        resumenLugares.set(claveLugar, resumen);
+      });
+      $('#resumen-movimientos-dia').textContent = `${historial.length} ${historial.length === 1 ? 'movimiento' : 'movimientos'} · ${resumenLugares.size} ${resumenLugares.size === 1 ? 'lugar' : 'lugares'}`;
+      $('#detalle-tiempo-lugares').hidden = resumenLugares.size === 0;
+      $('#resumen-lugares-dia').innerHTML = resumenLugares.size
+        ? `<ul class="space-y-2">${[...resumenLugares.values()]
+          .sort((a, b) => b.minutos - a.minutos)
+          .map(lugar => `<li class="flex items-center justify-between gap-3 text-sm">
+            <span class="min-w-0 truncate">${lugar.nombre_zona}${macSeleccionada === 'all' ? ` · ${nombreGato(lugar.mac)}` : ''}</span>
+            <span class="shrink-0 font-semibold">${duracionMinutos(Math.round(lugar.minutos))}</span>
+          </li>`).join('')}</ul>`
+        : '';
+      $('#historial-dia').innerHTML = historialOrdenado.length
+        ? historialOrdenado.map(evento => `<article class="flex min-w-0 items-center gap-3 py-3">
+            <span class="material-symbols-outlined shrink-0 text-secondary">${iconoZona(evento.nombre_zona)}</span>
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-semibold">${evento.nombre_zona}${macSeleccionada === 'all' ? ` · ${nombreGato(evento.mac)}` : ''}</p>
+              <p class="text-xs text-on-surface-variant">${horaCorta(evento.cambiado_en)}${evento.fin ? ` – ${horaCorta(evento.fin)}` : ''}</p>
+            </div>
+            <span class="shrink-0 text-right text-sm font-semibold">${duracionEntre(evento.cambiado_en, evento.fin)}</span>
           </article>`).join('')
         : '<p class="text-sm text-on-surface-variant">Sin movimientos ese día.</p>';
 
