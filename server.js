@@ -73,43 +73,7 @@ async function ensureDeviceSchema() {
   }
 }
 
-async function ensureDefaultDevices() {
-  try {
-    await pool.query(`
-      INSERT INTO gateways (cliente_id, device_id, nombre_zona, nombre, icono, online, updated_at)
-      SELECT 'cliente-demo', 'M5_PISO_1_ESCRITORIO', 'Escritorio', 'Escritorio', 'chair', false, now()
-      WHERE NOT EXISTS (SELECT 1 FROM gateways LIMIT 1)
-      ON CONFLICT (device_id) DO NOTHING
-    `);
-
-    await pool.query(`
-      UPDATE gateways
-      SET nombre = COALESCE(nombre, nombre_zona, 'Gateway'),
-          nombre_zona = COALESCE(nombre_zona, 'Escritorio')
-      WHERE device_id = 'M5_PISO_1_ESCRITORIO'
-    `);
-
-    await pool.query(`
-      INSERT INTO beacons (mac, nombre, nombre_mascota, icono, asignado, ultimo_visto, updated_at)
-      SELECT $1, 'Michi', 'Michi', 'pets', true, now(), now()
-      WHERE NOT EXISTS (SELECT 1 FROM beacons LIMIT 1)
-      ON CONFLICT (mac) DO NOTHING
-    `, [process.env.TARGET_MAC || 'dd:88:00:00:3e:15']);
-
-    await pool.query(`
-      UPDATE beacons
-      SET nombre = COALESCE(nombre, 'Michi'),
-          nombre_mascota = COALESCE(nombre_mascota, nombre, 'Michi'),
-          icono = COALESCE(icono, 'pets'),
-          asignado = COALESCE(asignado, true)
-      WHERE mac = $1
-    `, [process.env.TARGET_MAC || 'dd:88:00:00:3e:15']);
-  } catch (err) {
-    console.error('[ERROR] ensureDefaultDevices:', err.message);
-  }
-}
-
-ensureDeviceSchema().then(() => ensureDefaultDevices());
+ensureDeviceSchema();
 
 // Mantiene la tabla `zonas` (device_id -> nombre_zona) sincronizada con `gateways`.
 // zone_detector.js y anomaly_detector.js resuelven el nombre de la zona a partir de esta tabla,
@@ -1091,50 +1055,36 @@ app.get('/api/rutina', async (req, res) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     const mac = await obtenerMacFiltroHome(req);
     const { rows } = await pool.query(
-      `WITH eventos AS (
-         SELECT mac, nombre_zona, cambiado_en,
-                LEAD(cambiado_en) OVER (PARTITION BY mac ORDER BY cambiado_en) AS siguiente
-         FROM historial_zona
-         WHERE EXISTS (
-           SELECT 1 FROM beacons b
-           WHERE b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(historial_zona.mac))
-         )
-           AND ($1::text IS NULL OR UPPER(mac) = UPPER($1))
+      `WITH clasificados AS (
+         SELECT UPPER(TRIM(mac)) AS mac, franja_horaria, nombre_zona,
+                ROW_NUMBER() OVER (
+                  PARTITION BY UPPER(TRIM(mac)), franja_horaria
+                  ORDER BY tiempo_total_min DESC, frecuencia_visitas DESC, nombre_zona
+                ) AS prioridad
+         FROM rutinas_patron
+         WHERE dia_tipo = 'todos'
+           AND ($1::text IS NULL OR UPPER(TRIM(mac)) = UPPER(TRIM($1)))
        ),
-       segmentos AS (
-         SELECT mac, nombre_zona,
-                EXTRACT(HOUR FROM cambiado_en AT TIME ZONE 'America/Bogota')::int * 60 +
-                  EXTRACT(MINUTE FROM cambiado_en AT TIME ZONE 'America/Bogota')::int AS inicio_min,
-                EXTRACT(EPOCH FROM (siguiente - cambiado_en)) / 60 AS duracion_min
-         FROM eventos
-         WHERE siguiente IS NOT NULL
-           AND siguiente > cambiado_en
-           AND siguiente - cambiado_en <= interval '24 hours'
-       ),
-       patrones AS (
-         SELECT mac, inicio_min, nombre_zona, COUNT(*)::int AS observaciones
-         FROM segmentos
-         GROUP BY mac, inicio_min, nombre_zona
-         HAVING COUNT(*) >= 2
-       ),
-       ordenados AS (
-         SELECT mac, inicio_min, nombre_zona, observaciones,
-                LEAD(inicio_min) OVER (PARTITION BY mac ORDER BY inicio_min) AS siguiente_inicio
-         FROM (
-           SELECT patrones.*,
-                  ROW_NUMBER() OVER (
-                    PARTITION BY mac, inicio_min
-                    ORDER BY observaciones DESC, nombre_zona
-                  ) AS prioridad
-           FROM patrones
-         ) seleccionados
+       seleccionados AS (
+         SELECT mac, franja_horaria, nombre_zona
+         FROM clasificados
          WHERE prioridad = 1
+       ),
+       grupos AS (
+         SELECT mac, franja_horaria, nombre_zona,
+                franja_horaria - ROW_NUMBER() OVER (
+                  PARTITION BY mac, nombre_zona ORDER BY franja_horaria
+                ) AS grupo
+         FROM seleccionados
        )
-       SELECT mac, inicio_min AS franja_horaria, nombre_zona,
-              GREATEST(1, COALESCE(siguiente_inicio, 1440) - inicio_min)::int AS duracion_promedio_min,
-              observaciones
-       FROM ordenados
-       ORDER BY inicio_min`,
+       SELECT mac,
+              MIN(franja_horaria)::int * 30 AS franja_horaria,
+              nombre_zona,
+              (COUNT(*) * 30)::int AS duracion_promedio_min,
+              COUNT(*)::int AS observaciones
+       FROM grupos
+       GROUP BY mac, nombre_zona, grupo
+       ORDER BY mac, MIN(franja_horaria)`,
       [mac]
     );
     res.json(rows);

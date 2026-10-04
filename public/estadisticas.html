@@ -46,7 +46,16 @@
     const $=s=>document.querySelector(s);
     const hora=min=>`${String(Math.floor(Number(min)%1440/60)).padStart(2,'0')}:${String(Number(min)%60).padStart(2,'0')}`;
     const minutosTexto=min=>{const h=Math.floor(min/60),m=min%60;return h?`${h} h ${m} min`:`${m} min`};
-    const fechaTexto=valor=>new Date(valor).toLocaleDateString('es-CO',{day:'2-digit',month:'short'});
+    const fechaTexto=valor=>{
+      const [anio,mes,dia]=claveFecha(valor).split('-').map(Number);
+      return new Date(Date.UTC(anio,mes-1,dia,12)).toLocaleDateString('es-CO',{day:'2-digit',month:'short',timeZone:'America/Bogota'});
+    };
+    const claveFecha=valor=>{
+      if(typeof valor==='string'&&/^\d{4}-\d{2}-\d{2}/.test(valor))return valor.slice(0,10);
+      const partes=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(valor instanceof Date?valor:new Date(valor));
+      const campo=tipo=>partes.find(parte=>parte.type===tipo).value;
+      return `${campo('year')}-${campo('month')}-${campo('day')}`;
+    };
     const nombreGato=mac=>gatos.find(g=>g.mac.toUpperCase()===String(mac||'').toUpperCase())?.nombre||'Mascota';
     const claveZona=(mac,zona)=>macSeleccionada==='all'?`${mac}|||${zona}`:zona;
     const etiquetaZona=clave=>{const separador=clave.indexOf('|||');return separador<0?clave:`${nombreGato(clave.slice(0,separador))} · ${clave.slice(separador+3)}`};
@@ -72,15 +81,14 @@
       if(!rutinaRes.ok) throw new Error('No se pudo cargar la rutina habitual');
       const data=await res.json(), rutina=await rutinaRes.json();
       const dias=modo==='month'?31:7;
-      const inicioPeriodo=new Date(data.inicio);
-      const inicioLocal=new Date(inicioPeriodo.getTime()+inicioPeriodo.getTimezoneOffset()*60000);
-      const inicioTexto=inicioLocal.toISOString().slice(0,10);
+      const inicioTexto=claveFecha(data.inicio);
       const actividadRes=await fetch(urlApi(`/api/rutina-periodo?dias=${dias}&inicio=${inicioTexto}`),{cache:'no-store'});
       if(!actividadRes.ok) throw new Error('No se pudo cargar la actividad del periodo');
       const actividad=await actividadRes.json();
       $('#titulo').textContent=`Resumen de ${data.nombre}`;
       $('#periodo').textContent=`${fechaTexto(data.inicio)} - ${fechaTexto(data.fin)}`;
-      const fechas=[]; for(let i=0;i<dias;i+=1){const d=new Date(inicioLocal);d.setDate(d.getDate()+i);fechas.push(d.toISOString().slice(0,10))}
+      const [anioInicio,mesInicio,diaInicio]=inicioTexto.split('-').map(Number);
+      const fechas=Array.from({length:dias},(_,i)=>new Date(Date.UTC(anioInicio,mesInicio-1,diaInicio+i,12)).toISOString().slice(0,10));
       const ocupa=(inicio,fin,min)=>Number(inicio)<min+60&&Number(fin)>min;
       const esperadoPorDia=Array.from({length:dias},()=>Array.from({length:24},()=>new Set()));
       rutina.forEach(item=>{const zona=claveZona(item.mac,item.nombre_zona);for(let h=0;h<24;h+=1){if(ocupa(item.franja_horaria,Number(item.franja_horaria)+Number(item.duracion_promedio_min),h*60))esperadoPorDia.forEach(dia=>dia[h].add(zona))}});
@@ -99,7 +107,7 @@
       }
       $('#subtitulo-cumplimiento').textContent=modo==='week'?'Días cumplidos de los 7 días de la semana.':'Días cumplidos del mes seleccionado.';
       $('#cumplimiento-lugares').innerHTML= cumplimiento.length?cumplimiento.map(x=>{const c=colores[x.indice%colores.length];return `<article class="flex min-h-28 flex-col items-center justify-center rounded-xl p-2 text-center" style="background:${c}18;color:${c}"><span class="material-symbols-outlined text-2xl">${iconos[etiquetaZona(x.zona).split(' · ').pop()]||'location_on'}</span><p class="mt-1 truncate max-w-full text-xs font-semibold">${etiquetaZona(x.zona)}</p><strong class="mt-1 text-lg">${x.diasCumplidos}/${dias}</strong><span class="text-xs font-semibold">${x.porcentaje}%</span></article>`}).join(''):'<p class="text-on-surface-variant">Aún no hay una rutina aprendida.</p>';
-      const hoyLocal=new Date().toLocaleDateString('en-CA',{timeZone:'America/Bogota'});
+      const hoyLocal=claveFecha(new Date());
       const horaActualLocal=Number(new Intl.DateTimeFormat('en-US',{timeZone:'America/Bogota',hour:'2-digit',hourCycle:'h23'}).format(new Date()));
       // La tabla usa el mismo color de la leyenda, con menor opacidad para mantenerla suave.
       const colorZona=zona=>zona?colores[zonas.indexOf(zona)%colores.length]:null;

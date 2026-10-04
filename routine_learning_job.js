@@ -1,11 +1,10 @@
 // routine_learning_job.js
 //
 // Reconstruye COMPLETA la matriz de rutina (rutinas_patron) a partir de historial_zona.
-// Se ejecuta periódicamente (ej. una vez al día, vía cron). Como el volumen de datos de
-// un solo gato/beacon es chico, reconstruir todo desde cero es más simple y menos propenso
-// a bugs que llevar un "watermark" incremental — a esta escala el costo es insignificante.
+// Se ejecuta periódicamente (ej. una vez al día) y reconstruye cada mascota
+// por separado, evitando mezclar sus eventos.
 //
-// Uso: node routine_learning_job.js  [MAC opcional, si no se pasa usa TARGET_MAC del .env]
+// Uso: node routine_learning_job.js [MAC opcional] [--hasta=fecha ISO opcional]
 
 require('dotenv').config();
 const { Pool } = require('pg');
@@ -13,13 +12,17 @@ const { Pool } = require('pg');
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 const SLOT_MINUTES = 30; // 48 franjas de 30 min por día
-const MAC = process.argv[2] || process.env.TARGET_MAC || 'dd:88:00:00:3e:15';
-const TIME_ZONE = process.env.TIME_ZONE || 'America/Bogota';
-
-if (!MAC) {
-  console.error('Falta la MAC del beacon. Uso: node routine_learning_job.js <mac>');
-  process.exit(1);
+const argumentos = process.argv.slice(2);
+const argumentoMac = argumentos.find(argumento => !argumento.startsWith('--'));
+const argumentoHasta = argumentos.find(argumento => argumento.startsWith('--hasta='));
+const MAC_SOLICITADA = argumentoMac
+  ? argumentoMac.trim().replace(/-/g, ':').toUpperCase()
+  : null;
+const HASTA = argumentoHasta ? new Date(argumentoHasta.slice('--hasta='.length)) : null;
+if (HASTA && Number.isNaN(HASTA.getTime())) {
+  throw new Error('La fecha --hasta debe ser una fecha ISO válida.');
 }
+const TIME_ZONE = process.env.TIME_ZONE || 'America/Bogota';
 
 function franjaDe(fecha) {
   const partes = new Intl.DateTimeFormat('en-US', {
@@ -66,21 +69,18 @@ function repartirSegmento(inicio, fin) {
   return partes;
 }
 
-async function reconstruirMatriz() {
-  console.log(`Reconstruyendo matriz de rutina para MAC ${MAC}...`);
+async function reconstruirMatriz(mac, hasta = null) {
+  console.log(`Reconstruyendo matriz de rutina para MAC ${mac}...`);
 
   const { rows: eventos } = await pool.query(
-    `SELECT nombre_zona, cambiado_en
-     FROM historial_zona
-     WHERE UPPER(mac) = UPPER($1)
-     ORDER BY cambiado_en ASC`,
-    [MAC]
+    `SELECT h.nombre_zona, h.cambiado_en
+     FROM historial_zona h
+     JOIN beacons b ON UPPER(TRIM(b.mac)) = UPPER(TRIM(h.mac)) AND b.asignado = true
+     WHERE UPPER(TRIM(h.mac)) = UPPER($1)
+       AND ($2::timestamptz IS NULL OR h.cambiado_en < $2::timestamptz)
+     ORDER BY h.cambiado_en ASC`,
+    [mac, hasta]
   );
-
-  if (eventos.length === 0) {
-    console.log('No hay eventos en historial_zona todavía. Nada que aprender aún.');
-    return;
-  }
 
   // Acumulador en memoria: clave = "franja|zona" -> { minutos, visitas }
   const acumulado = new Map();
@@ -89,7 +89,7 @@ async function reconstruirMatriz() {
     const actual = eventos[i];
     const siguiente = eventos[i + 1];
     const inicio = new Date(actual.cambiado_en);
-    const fin = siguiente ? new Date(siguiente.cambiado_en) : new Date(); // el último segmento llega hasta "ahora"
+    const fin = siguiente ? new Date(siguiente.cambiado_en) : (hasta || new Date());
 
     if (fin <= inicio) continue; // por seguridad, ignorar segmentos de duración cero o negativa
 
@@ -115,19 +115,21 @@ async function reconstruirMatriz() {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('DELETE FROM rutinas_patron WHERE UPPER(mac) = UPPER($1) AND dia_tipo = $2', [MAC, 'todos']);
+    await client.query('DELETE FROM rutinas_patron WHERE UPPER(mac) = UPPER($1) AND dia_tipo = $2', [mac, 'todos']);
 
     for (const [clave, datos] of acumulado.entries()) {
       const [franja, zona] = clave.split('|');
       await client.query(
         `INSERT INTO rutinas_patron (mac, dia_tipo, franja_horaria, nombre_zona, tiempo_total_min, frecuencia_visitas)
          VALUES ($1, 'todos', $2, $3, $4, $5)`,
-        [MAC, Number(franja), zona, datos.minutos, datos.visitas]
+        [mac, Number(franja), zona, datos.minutos, datos.visitas]
       );
     }
 
     await client.query('COMMIT');
-    console.log('Matriz de rutina actualizada correctamente.');
+    console.log(eventos.length
+      ? 'Matriz de rutina actualizada correctamente.'
+      : 'No hay historial para esta mascota; se limpió su rutina anterior.');
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -136,6 +138,29 @@ async function reconstruirMatriz() {
   }
 }
 
-reconstruirMatriz()
-  .catch(err => console.error('[ERROR]', err.message))
+async function reconstruirMascotasAsignadas() {
+  const { rows } = await pool.query(
+    `SELECT DISTINCT UPPER(TRIM(mac)) AS mac
+     FROM beacons
+     WHERE asignado = true
+       AND ($1::text IS NULL OR UPPER(TRIM(mac)) = UPPER($1))
+     ORDER BY 1`,
+    [MAC_SOLICITADA]
+  );
+  if (!rows.length) {
+    console.warn(MAC_SOLICITADA
+      ? `La MAC ${MAC_SOLICITADA} no está registrada y asignada; no se modificó ninguna rutina.`
+      : 'No hay mascotas asignadas; no se modificó ninguna rutina.');
+    return;
+  }
+  for (const { mac } of rows) {
+    await reconstruirMatriz(mac, HASTA);
+  }
+}
+
+reconstruirMascotasAsignadas()
+  .catch(err => {
+    console.error('[ERROR]', err.message);
+    process.exitCode = 1;
+  })
   .finally(() => pool.end());

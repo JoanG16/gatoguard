@@ -1,5 +1,6 @@
 require('dotenv').config();
 const { Pool } = require('pg');
+const { ensureGatewayRegistrySchema } = require('./gateway_registry');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, statement_timeout: 10000, query_timeout: 10000 });
 // Si una conexión inactiva del pool se cae (por red o timeout del servidor), 'error' se dispara en el
@@ -8,17 +9,14 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, statement_ti
 pool.on('error', (err) => console.error('[ERROR] Pool de Postgres:', err.message));
 
 // --- CONFIGURACIÓN ---
-const TARGET_MAC = process.env.TARGET_MAC || 'dd:88:00:00:3e:15';
-const WINDOW_SECONDS = 8;         // ventana de lecturas recientes a promediar (suavizado)
+const WINDOW_SECONDS = 3;         // ventana corta para no ocultar visitas breves
+const MAX_SAMPLE_AGE_MS = 2500;   // solo confirma con telemetría realmente reciente
 const HYSTERESIS_MARGIN = 6;      // dB que la nueva zona debe superar a la actual para considerar el cambio
 const CONFIRM_POLLS_NEEDED = 2;   // veces SEGUIDAS que el candidato debe ganar antes de aceptar el cambio
-const POLL_INTERVAL_MS = 3000;    // cada cuánto se re-evalúa
+const POLL_INTERVAL_MS = 1000;    // cada cuánto se re-evalúa
 const MIN_RSSI_DBM = Number(process.env.MIN_RSSI_DBM || -65); // RSSI mínimo fijado estrictamente en -65 dBm
 const TIME_ZONE = process.env.TIME_ZONE || 'America/Bogota';
-
-let currentZoneDeviceId = null; // zona confirmada, en memoria
-let pendingZoneDeviceId = null; // candidato a nueva zona, todavía sin suficientes confirmaciones
-let pendingCount = 0;
+const estadoPorMac = new Map();
 
 function horaLog() {
   return new Intl.DateTimeFormat('es-MX', {
@@ -26,130 +24,195 @@ function horaLog() {
   }).format(new Date());
 }
 
-async function evaluarZona() {
-  // Se usa UPPER(mac) = UPPER($1) para hacer el filtro insensible a mayúsculas/minúsculas
-  const { rows } = await pool.query(
-    `SELECT device_id, AVG(rssi)::numeric(6,2) AS rssi_promedio, COUNT(*) AS muestras
-     FROM telemetria_raw
-     WHERE UPPER(mac) = UPPER($1) AND rssi >= $3
-       AND time > now() - ($2 || ' seconds')::interval
-     GROUP BY device_id`,
-    [TARGET_MAC, WINDOW_SECONDS, MIN_RSSI_DBM]
-  );
-
-  if (rows.length === 0) {
-    console.log(`[${horaLog()}] Sin lecturas recientes del beacon ${TARGET_MAC}.`);
-    return;
+function resolverZona(mac, estado, filas) {
+  if (!filas.length) {
+    estado.pendingZoneDeviceId = null;
+    estado.pendingCount = 0;
+    estado.pendingLastSampleTime = null;
+    return null;
   }
 
-  rows.sort((a, b) => b.rssi_promedio - a.rssi_promedio);
-  const candidato = rows[0];
+  filas.sort((a, b) => Number(b.rssi_promedio) - Number(a.rssi_promedio));
+  const candidato = filas[0];
+  if (candidato.device_id === estado.currentZoneDeviceId) {
+    estado.pendingZoneDeviceId = null;
+    estado.pendingCount = 0;
+    estado.pendingLastSampleTime = null;
+    return { mac, zona: candidato, cambioConfirmado: false };
+  }
 
-  console.log(
-    `[${horaLog()}] Lecturas: ` +
-    rows.map(r => `${r.device_id}=${r.rssi_promedio}dBm(${r.muestras})`).join(', ')
-  );
+  const filaActual = estado.currentZoneDeviceId
+    ? filas.find(fila => fila.device_id === estado.currentZoneDeviceId)
+    : null;
+  const diferencia = filaActual
+    ? Number(candidato.rssi_promedio) - Number(filaActual.rssi_promedio)
+    : null;
+  if (diferencia !== null && diferencia < HYSTERESIS_MARGIN) {
+    estado.pendingZoneDeviceId = null;
+    estado.pendingCount = 0;
+    estado.pendingLastSampleTime = null;
+    return filaActual ? { mac, zona: filaActual, cambioConfirmado: false } : null;
+  }
 
-  let zonaConfirmadaCambio = false;
-  let zonaParaGuardar;
-
-  if (!currentZoneDeviceId) {
-    currentZoneDeviceId = candidato.device_id;
-    pendingZoneDeviceId = null;
-    pendingCount = 0;
-    zonaConfirmadaCambio = true;
-    zonaParaGuardar = candidato;
-
-  } else if (candidato.device_id === currentZoneDeviceId) {
-    pendingZoneDeviceId = null;
-    pendingCount = 0;
-    zonaParaGuardar = candidato;
-
+  const tiempoMuestra = new Date(candidato.ultima_muestra).getTime();
+  if (estado.pendingZoneDeviceId === candidato.device_id) {
+    if (tiempoMuestra > (estado.pendingLastSampleTime || 0)) {
+      estado.pendingCount += 1;
+      estado.pendingLastSampleTime = tiempoMuestra;
+    }
   } else {
-    const filaActual = rows.find(r => r.device_id === currentZoneDeviceId);
-    zonaParaGuardar = filaActual || candidato;
+    estado.pendingZoneDeviceId = candidato.device_id;
+    estado.pendingCount = 1;
+    estado.pendingLastSampleTime = tiempoMuestra;
+  }
 
-    let pasaMargen;
-    let etiquetaDiferencia;
+  if (estado.pendingCount < CONFIRM_POLLS_NEEDED) {
+    return filaActual ? { mac, zona: filaActual, cambioConfirmado: false } : null;
+  }
 
-    if (!filaActual) {
-      pasaMargen = true;
-      etiquetaDiferencia = 'sin lecturas recientes de la zona actual, no se compara margen';
-    } else {
-      const diferencia = Number(candidato.rssi_promedio) - Number(filaActual.rssi_promedio);
-      pasaMargen = diferencia >= HYSTERESIS_MARGIN;
-      etiquetaDiferencia = `+${diferencia.toFixed(1)}dB`;
+  estado.currentZoneDeviceId = candidato.device_id;
+  estado.pendingZoneDeviceId = null;
+  estado.pendingCount = 0;
+  estado.pendingLastSampleTime = null;
+  return { mac, zona: candidato, cambioConfirmado: true };
+}
+
+async function evaluarActivas() {
+  const { rows } = await pool.query(
+    `WITH activas AS (
+       SELECT DISTINCT ON (UPPER(TRIM(b.mac)))
+              UPPER(TRIM(b.mac)) AS mac,
+              e.device_id AS current_zone_device_id
+       FROM beacons b
+       LEFT JOIN estado_actual e ON UPPER(TRIM(e.mac)) = UPPER(TRIM(b.mac))
+       WHERE b.asignado = true
+       ORDER BY UPPER(TRIM(b.mac)), e.actualizado_en DESC NULLS LAST
+     ),
+     lecturas AS (
+       SELECT UPPER(TRIM(t.mac)) AS mac,
+              t.device_id,
+              AVG(t.rssi)::numeric(6,2) AS rssi_promedio,
+              SUM(t.sample_count)::bigint AS muestras,
+              MAX(t.time) AS ultima_muestra
+       FROM telemetria_raw t
+       JOIN activas a ON a.mac = UPPER(TRIM(t.mac))
+       JOIN gateways g ON g.device_id = t.device_id AND g.cliente_id = t.cliente_id
+       JOIN gateway_registry gr
+         ON gr.device_id = g.device_id
+        AND gr.cliente_id = g.cliente_id
+        AND gr.deleted = false
+       WHERE t.rssi >= $1
+         AND t.time > now() - ($2 || ' seconds')::interval
+       GROUP BY UPPER(TRIM(t.mac)), t.device_id
+       HAVING MAX(t.time) > now() - ($3 || ' milliseconds')::interval
+     )
+     SELECT a.mac,
+            a.current_zone_device_id,
+            l.device_id,
+            l.rssi_promedio,
+            l.muestras,
+            l.ultima_muestra,
+            COALESCE(z.nombre_zona, l.device_id) AS nombre_zona
+     FROM activas a
+     LEFT JOIN lecturas l ON l.mac = a.mac
+     LEFT JOIN zonas z ON z.device_id = l.device_id
+     ORDER BY a.mac, l.device_id`,
+    [MIN_RSSI_DBM, WINDOW_SECONDS, MAX_SAMPLE_AGE_MS]
+  );
+
+  const lecturasPorMac = new Map();
+  const macsActivas = new Set();
+  for (const fila of rows) {
+    macsActivas.add(fila.mac);
+    const estado = estadoPorMac.get(fila.mac) || {
+      currentZoneDeviceId: fila.current_zone_device_id || null,
+      pendingZoneDeviceId: null,
+      pendingCount: 0,
+      pendingLastSampleTime: null
+    };
+    estado.currentZoneDeviceId = fila.current_zone_device_id || null;
+    estadoPorMac.set(fila.mac, estado);
+    if (!fila.device_id) continue;
+    if (!lecturasPorMac.has(fila.mac)) lecturasPorMac.set(fila.mac, []);
+    lecturasPorMac.get(fila.mac).push(fila);
+  }
+  for (const mac of estadoPorMac.keys()) {
+    if (!macsActivas.has(mac)) estadoPorMac.delete(mac);
+  }
+
+  const ubicaciones = [];
+  const historial = [];
+  for (const mac of macsActivas) {
+    const estado = estadoPorMac.get(mac);
+    const resultado = resolverZona(mac, estado, lecturasPorMac.get(mac) || []);
+    if (!resultado) continue;
+
+    ubicaciones.push({
+      mac,
+      device_id: resultado.zona.device_id,
+      nombre_zona: resultado.zona.nombre_zona || resultado.zona.device_id,
+      rssi_promedio: Number(resultado.zona.rssi_promedio)
+    });
+    if (resultado.cambioConfirmado) {
+      historial.push(ubicaciones[ubicaciones.length - 1]);
+      console.log(`[ZONA] ${mac} -> "${resultado.zona.nombre_zona}" (${resultado.zona.rssi_promedio} dBm)`);
     }
+  }
 
-    if (!pasaMargen) {
-      console.log(`  -> "${candidato.device_id}" no supera el margen (${etiquetaDiferencia} < ${HYSTERESIS_MARGIN}dB). Se mantiene zona actual.`);
-      pendingZoneDeviceId = null;
-      pendingCount = 0;
-
-    } else if (pendingZoneDeviceId === candidato.device_id) {
-      pendingCount += 1;
-      if (pendingCount >= CONFIRM_POLLS_NEEDED) {
-        console.log(`  -> "${candidato.device_id}" confirmado ${pendingCount}/${CONFIRM_POLLS_NEEDED} veces seguidas (${etiquetaDiferencia}). Se acepta el cambio.`);
-        currentZoneDeviceId = candidato.device_id;
-        pendingZoneDeviceId = null;
-        pendingCount = 0;
-        zonaConfirmadaCambio = true;
-        zonaParaGuardar = candidato;
-      } else {
-        console.log(`  -> "${candidato.device_id}" supera el margen (${etiquetaDiferencia}), confirmación ${pendingCount}/${CONFIRM_POLLS_NEEDED}. Se mantiene zona actual por ahora.`);
+  if (ubicaciones.length) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `INSERT INTO estado_actual (mac, device_id, nombre_zona, rssi_promedio, actualizado_en)
+         SELECT UPPER(item.mac), item.device_id, item.nombre_zona, item.rssi_promedio, now()
+         FROM jsonb_to_recordset($1::jsonb)
+           AS item(mac TEXT, device_id TEXT, nombre_zona TEXT, rssi_promedio NUMERIC)
+         ON CONFLICT (mac) DO UPDATE
+           SET device_id = EXCLUDED.device_id,
+               nombre_zona = EXCLUDED.nombre_zona,
+               rssi_promedio = EXCLUDED.rssi_promedio,
+               actualizado_en = now()`,
+        [JSON.stringify(ubicaciones)]
+      );
+      if (historial.length) {
+        await client.query(
+          `INSERT INTO historial_zona (mac, device_id, nombre_zona, rssi_promedio)
+           SELECT UPPER(item.mac), item.device_id, item.nombre_zona, item.rssi_promedio
+           FROM jsonb_to_recordset($1::jsonb)
+             AS item(mac TEXT, device_id TEXT, nombre_zona TEXT, rssi_promedio NUMERIC)`,
+          [JSON.stringify(historial)]
+        );
       }
-
-    } else {
-      pendingZoneDeviceId = candidato.device_id;
-      pendingCount = 1;
-      console.log(`  -> "${candidato.device_id}" supera el margen (${etiquetaDiferencia}), primera confirmación (1/${CONFIRM_POLLS_NEEDED}).`);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
     }
   }
 
-  const { rows: zonaRows } = await pool.query(
-    `SELECT nombre_zona FROM zonas WHERE device_id = $1`,
-    [zonaParaGuardar.device_id]
-  );
-  const nombreZona = zonaRows[0]?.nombre_zona || zonaParaGuardar.device_id;
-
-  await pool.query(
-    `INSERT INTO estado_actual (mac, device_id, nombre_zona, rssi_promedio, actualizado_en)
-     VALUES (UPPER($1), $2, $3, $4, now())
-     ON CONFLICT (mac) DO UPDATE
-       SET device_id = EXCLUDED.device_id,
-           nombre_zona = EXCLUDED.nombre_zona,
-           rssi_promedio = EXCLUDED.rssi_promedio,
-           actualizado_en = now()`,
-    [TARGET_MAC, zonaParaGuardar.device_id, nombreZona, zonaParaGuardar.rssi_promedio]
-  );
-
-  if (zonaConfirmadaCambio) {
-    console.log(`  >>> CAMBIO DE ZONA CONFIRMADO: ahora en "${nombreZona}" (${zonaParaGuardar.rssi_promedio}dBm)`);
-    await pool.query(
-      `INSERT INTO historial_zona (mac, device_id, nombre_zona, rssi_promedio)
-       VALUES (UPPER($1), $2, $3, $4)`,
-      [TARGET_MAC, zonaParaGuardar.device_id, nombreZona, zonaParaGuardar.rssi_promedio]
-    );
-  }
+  console.log(`[${horaLog()}] Detector: ${macsActivas.size} gato(s), ${ubicaciones.length} ubicación(es) actualizada(s), ${historial.length} cambio(s) confirmado(s).`);
 }
 
 async function iniciar() {
-  const { rows } = await pool.query(
-    `SELECT device_id
-     FROM estado_actual
-     WHERE UPPER(mac) = UPPER($1)
-     ORDER BY actualizado_en DESC NULLS LAST
-     LIMIT 1`,
-    [TARGET_MAC]
+  await ensureGatewayRegistrySchema(pool);
+  await pool.query(
+    'ALTER TABLE telemetria_raw ADD COLUMN IF NOT EXISTS sample_count INTEGER NOT NULL DEFAULT 1'
   );
-  currentZoneDeviceId = rows[0]?.device_id || null;
-  console.log(`Iniciando detector de zona para beacon ${TARGET_MAC}...`);
-  console.log(`Ventana: ${WINDOW_SECONDS}s | RSSI mínimo: ${MIN_RSSI_DBM}dBm | Histéresis: ${HYSTERESIS_MARGIN}dB | Confirmaciones: ${CONFIRM_POLLS_NEEDED} | Poll: ${POLL_INTERVAL_MS}ms`);
-  if (currentZoneDeviceId) console.log(`Zona recuperada desde estado_actual: ${currentZoneDeviceId}\n`);
-  evaluarZona().catch(err => console.error('[ERROR] evaluarZona:', err.message));
-  setInterval(() => {
-    evaluarZona().catch(err => console.error('[ERROR] evaluarZona:', err.message));
-  }, POLL_INTERVAL_MS);
+  const { rows } = await pool.query('SELECT count(*)::int AS cantidad FROM beacons WHERE asignado = true');
+  console.log(`Iniciando detector de zona para ${rows[0].cantidad} MAC(s) asignada(s)...`);
+  console.log(`Ventana: ${WINDOW_SECONDS}s | RSSI reciente: ${MAX_SAMPLE_AGE_MS}ms | RSSI mínimo: ${MIN_RSSI_DBM}dBm | Histéresis: ${HYSTERESIS_MARGIN}dB | Confirmaciones: ${CONFIRM_POLLS_NEEDED} muestras | Poll: ${POLL_INTERVAL_MS}ms`);
+  const ciclo = async () => {
+    try {
+      await evaluarActivas();
+    } catch (err) {
+      console.error('[ERROR] evaluar zonas:', err.message);
+    }
+    setTimeout(ciclo, POLL_INTERVAL_MS);
+  };
+  ciclo();
 }
 
 iniciar().catch(err => {
