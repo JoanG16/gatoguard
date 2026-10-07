@@ -12,11 +12,17 @@ const client = mqtt.connect(mqttUrl);
 // Comodines: captura cualquier cliente_id y cualquier device_id, sin hardcodear nombres.
 const TOPIC_PATTERN = 'telemetria/+/+/beacon';
 const GATEWAY_REGISTER_PATTERN = 'telemetria/+/+/gateway/register';
+let rechazadasAcumuladas = 0;
+let aceptadasAcumuladas = 0;
+let proximoLogResumen = Date.now() + 30000;
 
 client.on('connect', async () => {
   console.log(`[MQTT] Conectado a ${mqttUrl}`);
   try {
     await ensureGatewayRegistrySchema(pool);
+    await pool.query(
+      'ALTER TABLE telemetria_raw ADD COLUMN IF NOT EXISTS sample_count INTEGER NOT NULL DEFAULT 1'
+    );
     client.subscribe([TOPIC_PATTERN, GATEWAY_REGISTER_PATTERN], (err) => {
       if (err) console.error('[MQTT] Error al suscribirse:', err.message);
       else console.log(`[MQTT] Suscrito a "${TOPIC_PATTERN}" y "${GATEWAY_REGISTER_PATTERN}"`);
@@ -79,6 +85,15 @@ client.on('message', async (topic, payloadBuffer) => {
     return;
   }
 
+  if (
+    topicParts.length !== 4
+    || topicParts[0] !== 'telemetria'
+    || topicParts[3] !== 'beacon'
+  ) {
+    console.warn(`[WARN] Se descarta mensaje fuera del topic de lecturas: "${topic}".`);
+    return;
+  }
+
   let data;
   try {
     data = JSON.parse(payloadBuffer.toString());
@@ -87,23 +102,81 @@ client.on('message', async (topic, payloadBuffer) => {
     return;
   }
 
-  const { cliente_id, device_id, mac, rssi, schema_version } = data;
+  const { cliente_id, device_id, schema_version } = data;
 
-  if (!cliente_id || !device_id || !mac || typeof rssi !== 'number') {
+  if (!cliente_id || !device_id) {
     console.warn('[WARN] Payload incompleto, se descarta:', data);
     return;
   }
 
-  if (schema_version !== 1) {
-    console.warn(`[WARN] schema_version desconocida (${schema_version}), se procesa igual pero revisar.`);
+  const [, topicClienteId, topicDeviceId] = topicParts;
+  if (
+    cliente_id !== topicClienteId
+    || device_id !== topicDeviceId
+  ) {
+    console.warn(`[WARN] Lectura con identidad o valores inválidos; se descarta: "${topic}".`);
+    return;
+  }
+
+  const lecturas = schema_version === 2 && Array.isArray(data.beacons)
+    ? data.beacons
+    : schema_version === 1
+      ? [data]
+      : null;
+  if (!lecturas || lecturas.length === 0 || lecturas.length > 48) {
+    console.warn(`[WARN] Lote de lecturas vacío, inválido o demasiado grande; se descarta: "${topic}".`);
+    return;
+  }
+
+  const lecturasNormalizadas = [];
+  for (const lectura of lecturas) {
+    const mac = String(lectura?.mac || '').trim().replace(/-/g, ':').toUpperCase();
+    const rssi = lectura?.rssi;
+    const sampleCount = schema_version === 2 ? lectura?.sample_count : 1;
+    if (
+      !/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac)
+      || !Number.isInteger(rssi)
+      || rssi < -127
+      || rssi > 0
+      || !Number.isInteger(sampleCount)
+      || sampleCount < 1
+      || sampleCount > 65535
+    ) {
+      console.warn(`[WARN] Lectura inválida dentro del lote; se descarta el mensaje: "${topic}".`);
+      return;
+    }
+    lecturasNormalizadas.push({ mac, rssi, sample_count: sampleCount });
   }
 
   try {
-    await pool.query(
-      `INSERT INTO telemetria_raw (cliente_id, device_id, mac, rssi) VALUES ($1, $2, $3, $4)`,
-      [cliente_id, device_id, mac, rssi]
+    const { rowCount } = await pool.query(
+      `INSERT INTO telemetria_raw (cliente_id, device_id, mac, rssi, sample_count)
+       SELECT g.cliente_id, g.device_id, incoming.mac, incoming.rssi, incoming.sample_count
+       FROM jsonb_to_recordset($3::jsonb)
+         AS incoming(mac TEXT, rssi INTEGER, sample_count INTEGER)
+       JOIN gateways g ON g.cliente_id = $1 AND g.device_id = $2
+       JOIN gateway_registry gr
+         ON gr.device_id = g.device_id
+        AND gr.cliente_id = g.cliente_id
+        AND gr.deleted = false
+       WHERE EXISTS (
+           SELECT 1
+           FROM beacons b
+           WHERE UPPER(TRIM(b.mac)) = incoming.mac
+             AND b.asignado = true
+         )`,
+      [cliente_id, device_id, JSON.stringify(lecturasNormalizadas)]
     );
-    console.log(`[OK] ${device_id} <- ${mac} RSSI=${rssi}`);
+    aceptadasAcumuladas += rowCount;
+    rechazadasAcumuladas += lecturasNormalizadas.length - rowCount;
+    if (Date.now() >= proximoLogResumen) {
+      const mensaje = `[MQTT] En 30s: ${aceptadasAcumuladas} resumen(es) RSSI guardados, ${rechazadasAcumuladas} rechazados (MAC no asignada o gateway inactivo).`;
+      if (rechazadasAcumuladas > 0) console.warn(mensaje);
+      else console.log(mensaje);
+      aceptadasAcumuladas = 0;
+      rechazadasAcumuladas = 0;
+      proximoLogResumen = Date.now() + 30000;
+    }
   } catch (err) {
     console.error('[ERROR] No se pudo escribir en Postgres:', err.message);
   }

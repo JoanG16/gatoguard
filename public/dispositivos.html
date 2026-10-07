@@ -96,11 +96,12 @@
 
         <div id="form-field-mac" class="hidden">
           <label class="block text-sm font-medium text-on-surface-variant">MAC del collar
-            <input id="device-mac" name="mac" readonly class="mt-1 w-full rounded-xl border border-surface-variant bg-surface-container-low px-3 py-2 outline-none focus:ring-2 focus:ring-primary/30" placeholder="Escanea el QR del collar para completar" />
+            <input id="device-mac" name="mac" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="17" class="mt-1 w-full rounded-xl border border-surface-variant bg-surface-container-low px-3 py-2 font-mono outline-none focus:ring-2 focus:ring-primary/30" placeholder="AA:BB:CC:DD:EE:FF" />
           </label>
           <button id="scan-beacon-qr" type="button" class="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-primary px-3 py-2 text-sm font-semibold text-primary">
             <span class="material-symbols-outlined text-lg">qr_code_scanner</span> Escanear código QR del collar
           </button>
+          <p class="mt-1 text-xs text-on-surface-variant">También puedes escribir la MAC a mano (con o sin “:”).</p>
           <div id="qr-scanner-wrap" class="mt-2 hidden overflow-hidden rounded-xl border border-surface-variant">
             <video id="qr-scanner-video" class="w-full" muted playsinline></video>
             <button id="qr-scanner-cancel" type="button" class="w-full bg-surface-container-low px-3 py-2 text-xs font-semibold text-on-surface-variant">Cancelar escaneo</button>
@@ -246,8 +247,8 @@
         const scanButton = $('#scan-beacon-qr');
         // La MAC siempre es de solo lectura: solo se completa escaneando el QR del collar.
         // Al editar una mascota ya existente tampoco se debe reasignar su MAC.
-        macInput.readOnly = true;
-        macInput.classList.add('bg-surface-container');
+        macInput.readOnly = mode === 'beacon-edit';
+        macInput.classList.toggle('bg-surface-container', mode === 'beacon-edit');
         if (mode === 'beacon-edit') {
           scanButton.classList.add('hidden');
         } else {
@@ -576,9 +577,18 @@
     let qrScanFrame = null;
 
     function normalizarMacDesdeQR(texto) {
-      const match = String(texto || '').match(/([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}/);
-      return match ? match[0].toUpperCase().replace(/-/g, ':') : null;
+      const limpio = String(texto || '').toUpperCase();
+      let match = limpio.match(/(?:[0-9A-F]{2}[:\-]){5}[0-9A-F]{2}/);
+      if (match) return match[0].replace(/-/g, ':');
+      match = limpio.match(/(?<![0-9A-F])[0-9A-F]{12}(?![0-9A-F])/);
+      return match ? match[0].match(/../g).join(':') : null;
     }
+
+    document.addEventListener('input', event => {
+      if (event.target.id !== 'device-mac' || event.target.readOnly) return;
+      const hex = event.target.value.toUpperCase().replace(/[^0-9A-F]/g, '').slice(0, 12);
+      event.target.value = (hex.match(/.{1,2}/g) || []).join(':');
+    });
 
     async function detenerEscaneoQR() {
       if (qrScanFrame) cancelAnimationFrame(qrScanFrame);
@@ -794,7 +804,14 @@
         return;
       }
       try {
-        qrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        qrStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+        });
+        const track = qrStream.getVideoTracks()[0];
+        const capacidades = track.getCapabilities ? track.getCapabilities() : {};
+        if (capacidades.focusMode && capacidades.focusMode.includes('continuous')) {
+          await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
+        }
         const video = $('#qr-scanner-video');
         video.srcObject = qrStream;
         await video.play();
@@ -1007,8 +1024,8 @@ $('#device-form').addEventListener('submit', async (event) => {
 
       // CASO 4: MASCOTAS / BEACONS
       if (mode === 'beacon-create' || mode === 'beacon-edit') {
-        const mac = (payload.mac || target || '').trim();
-        if (!mac) return alert('Escanea el código QR del collar para obtener su MAC.');
+        const mac = normalizarMacDesdeQR(payload.mac || target || '');
+        if (!mac) return alert('Escribe una MAC válida (ej. AA:BB:CC:DD:EE:FF) o escanea el QR del collar.');
 
         const beaconBody = {
           mac,
