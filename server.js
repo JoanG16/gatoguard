@@ -312,6 +312,67 @@ function publicarConfigGateway(registro) {
   });
 }
 
+let colaSincronizacionBeacons = Promise.resolve();
+
+function publicarListasBeaconsGateways() {
+  colaSincronizacionBeacons = colaSincronizacionBeacons
+    .then(publicarListasBeaconsGatewaysAhora)
+    .catch(err => {
+      console.error('[MQTT] Falló la cola de sincronización de beacons:', err.message);
+    });
+  return colaSincronizacionBeacons;
+}
+
+async function publicarListasBeaconsGatewaysAhora() {
+  if (!mqttClient.connected) {
+    console.warn('[MQTT] No está conectado; la lista de beacons se publicará al reconectar.');
+    return;
+  }
+
+  try {
+    const [gateways, beacons] = await Promise.all([
+      pool.query(
+        `SELECT g.cliente_id, g.device_id
+         FROM gateways g
+         JOIN gateway_registry r
+           ON r.device_id = g.device_id
+          AND r.cliente_id = g.cliente_id
+         WHERE r.deleted = false AND r.provisioning_token <> ''`
+      ),
+      pool.query(
+        `SELECT DISTINCT REPLACE(UPPER(TRIM(mac)), '-', ':') AS mac
+         FROM beacons
+         WHERE asignado = true
+         ORDER BY mac`
+      )
+    ]);
+    const macs = beacons.rows.map(row => row.mac);
+    if (macs.length > 256) {
+      console.error(`[MQTT] No se publicó la lista: hay ${macs.length} beacons asignados; el firmware admite 256.`);
+      return;
+    }
+
+    const payload = JSON.stringify({ macs });
+    const publishResults = await Promise.all(gateways.rows.map(gateway => new Promise(resolve => {
+      const topic = `telemetria/${gateway.cliente_id}/${gateway.device_id}/gateway/beacons`;
+      mqttClient.publish(topic, payload, { qos: 1, retain: true }, error => {
+        if (error) {
+          console.error(`[MQTT] No se pudo publicar la lista de beacons para ${gateway.device_id}:`, error.message);
+        }
+        resolve(!error);
+      });
+    })));
+    const fallidas = publishResults.filter(ok => !ok).length;
+    if (fallidas > 0) {
+      console.error(`[MQTT] Falló la sincronización de la lista en ${fallidas} gateway(s).`);
+      return;
+    }
+    console.log(`[MQTT] Lista de ${macs.length} beacon(s) sincronizada con ${gateways.rows.length} gateway(s).`);
+  } catch (err) {
+    console.error('[MQTT] No se pudo sincronizar la lista de beacons:', err.message);
+  }
+}
+
 mqttClient.on('connect', async () => {
   try {
     await ensureGatewayRegistrySchema(pool);
@@ -321,6 +382,7 @@ mqttClient.on('connect', async () => {
        WHERE provisioning_token <> ''`
     );
     rows.forEach(publicarConfigGateway);
+    await publicarListasBeaconsGateways();
   } catch (err) {
     console.error('[MQTT] No se pudieron restaurar las configuraciones retenidas de gateways:', err.message);
   }
@@ -342,6 +404,7 @@ app.delete('/api/gateways/:device_id', async (req, res) => {
       return res.status(404).json({ error: 'Gateway no encontrado en la base de datos.' });
     }
     publicarConfigGateway(resultado);
+    void publicarListasBeaconsGateways();
     console.log(`[DELETE] Gateway ${device_id} eliminado con éxito.`);
     res.json({ ok: true });
   } catch (err) {
@@ -366,6 +429,7 @@ app.delete('/api/beacons/:mac', async (req, res) => {
     }
 
     console.log(`[DELETE] Beacon ${mac} eliminado de la base de datos.`);
+    void publicarListasBeaconsGateways();
     res.json({ ok: true });
   } catch (err) {
     console.error('[ERROR] DELETE /api/beacons/:mac:', err.message);
@@ -796,6 +860,7 @@ app.post('/api/gateways/provision', async (req, res) => {
   try {
     const resultado = await registerGateway(pool, { cliente_id, device_id, nombre_zona, provisioning_token, icono });
     publicarConfigGateway(resultado);
+    void publicarListasBeaconsGateways();
     res.status(200).json(resultado);
   } catch (err) {
     console.error('[ERROR] /api/gateways/provision:', err.message);
@@ -913,23 +978,7 @@ app.post('/api/beacons', async (req, res) => {
     const beacon = rows[0];
     await pool.query('DELETE FROM beacons_bloqueados WHERE UPPER(mac) = UPPER($1)', [macNormalizada]);
 
-    // -------------------------------------------------------------
-    // NUEVO: 2. NOTIFICAR LA LISTA ACTUALIZADA AL M5STACK VÍA MQTT
-    // -------------------------------------------------------------
-    try {
-      // Obtener todas las MACs que estén asignadas/activas en la BD
-      const activeBeaconsRes = await pool.query('SELECT mac FROM beacons WHERE asignado = true');
-      const macsPermitidas = activeBeaconsRes.rows.map(r => r.mac.toUpperCase());
-
-      // Publicar el array JSON a la ruta de configuración
-      if (mqttClient && mqttClient.connected) {
-        mqttClient.publish('telemetria/demo_cliente/config/beacons', JSON.stringify(macsPermitidas));
-        console.log('[MQTT CONFIG] Lista de MACs permitidas enviada al M5Stack:', macsPermitidas);
-      }
-    } catch (mqttErr) {
-      console.warn('[WARN MQTT] No se pudo publicar la lista de beacons:', mqttErr.message);
-    }
-    // -------------------------------------------------------------
+    void publicarListasBeaconsGateways();
 
     // 3. Responder al cliente en el frontend
     res.status(201).json({
@@ -975,6 +1024,7 @@ app.put('/api/beacons/:mac', async (req, res) => {
     );
     const beacon = rows[0];
     await pool.query('DELETE FROM beacons_bloqueados WHERE UPPER(mac) = UPPER($1)', [mac]);
+    void publicarListasBeaconsGateways();
     res.json({ ...beacon, nombre_mascota: beacon.nombre_mascota || beacon.nombre || null, icono: beacon.icono || 'pets' });
   } catch (err) {
     console.error('[ERROR] /api/beacons/:mac:', err.message);
@@ -1006,6 +1056,7 @@ app.post('/api/beacons/:mac', async (req, res) => {
     );
     const beacon = rows[0];
     await pool.query('DELETE FROM beacons_bloqueados WHERE UPPER(mac) = UPPER($1)', [mac]);
+    void publicarListasBeaconsGateways();
     res.status(201).json({ ...beacon, nombre_mascota: beacon.nombre_mascota || beacon.nombre || null, icono: beacon.icono || 'pets' });
   } catch (err) {
     console.error('[ERROR] /api/beacons/:mac:', err.message);
