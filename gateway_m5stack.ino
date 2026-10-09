@@ -29,6 +29,10 @@ bool registroConfirmado = false;
 bool bleInicializado = false;
 bool listaBeaconsRecibida = false;
 bool avisoEsperandoLista = false;
+bool escaneoRedesSolicitado = false;
+bool escaneoRedesIniciado = false;
+bool escaneoRedesFallido = false;
+bool pausarReintentosWifi = false;
 unsigned long ultimoIntentoWiFi = 0;
 unsigned long ultimoIntentoMQTT = 0;
 unsigned long ultimaPublicacionRegistro = 0;
@@ -296,6 +300,17 @@ void guardarConfiguracionGateway() {
   prefs.end();
 }
 
+void reconectarWifiGuardado() {
+  prefs.begin("gateway_cfg", true);
+  String savedSsid = prefs.getString("wifi_ssid", "");
+  String savedPass = prefs.getString("wifi_pass", "");
+  prefs.end();
+  if (savedSsid.length() == 0) return;
+
+  WiFi.begin(savedSsid.c_str(), savedPass.c_str());
+  ultimoIntentoWiFi = millis();
+}
+
 void detenerModoAP() {
   if (!modoApActivo) return;
   server.stop();
@@ -339,6 +354,28 @@ void enableCORS() {
   server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
   server.sendHeader("Access-Control-Allow-Private-Network", "true");
   server.sendHeader("Cache-Control", "no-store");
+}
+
+void iniciarEscaneoRedesSolicitado() {
+  if (!escaneoRedesSolicitado || escaneoRedesIniciado || escaneoRedesFallido) return;
+  if (WiFi.status() == WL_IDLE_STATUS) return;
+
+  const int resultado = WiFi.scanNetworks(true, true);
+  if (resultado == WIFI_SCAN_FAILED) {
+    escaneoRedesFallido = true;
+    Serial.printf("[WiFi] No se pudo iniciar el escaneo; estado STA=%d.\n", static_cast<int>(WiFi.status()));
+    return;
+  }
+
+  escaneoRedesIniciado = true;
+  Serial.println("[WiFi] Escaneo de redes iniciado.");
+}
+
+void finalizarEscaneoRedes() {
+  escaneoRedesSolicitado = false;
+  escaneoRedesIniciado = false;
+  escaneoRedesFallido = false;
+  WiFi.scanDelete();
 }
 
 String obtenerDeviceIdFisico() {
@@ -562,12 +599,31 @@ void setupHttpEndpoints() {
       server.send(202, "application/json", "{\"status\":\"scanning\"}");
       return;
     }
+    if (escaneoRedesSolicitado && !escaneoRedesIniciado && !escaneoRedesFallido) {
+      enableCORS();
+      server.send(202, "application/json", "{\"status\":\"scanning\"}");
+      return;
+    }
+    if (escaneoRedesFallido || (escaneoRedesSolicitado && escaneoRedesIniciado && n == WIFI_SCAN_FAILED)) {
+      const bool reintentarWifi = pausarReintentosWifi;
+      finalizarEscaneoRedes();
+      enableCORS();
+      server.send(503, "application/json", "{\"status\":\"error\",\"error\":\"El M5 no pudo iniciar el escaneo. Mantén el teléfono conectado a GatoGateway-Setup e inténtalo otra vez.\"}");
+      if (reintentarWifi) {
+        pausarReintentosWifi = false;
+        reconectarWifiGuardado();
+      }
+      return;
+    }
     if (n == WIFI_SCAN_FAILED) {
-      n = WiFi.scanNetworks(true, true);
-      if (n == WIFI_SCAN_FAILED) {
-        enableCORS();
-        server.send(503, "application/json", "{\"status\":\"error\",\"error\":\"No se pudo iniciar el escaneo Wi-Fi.\"}");
-        return;
+      WiFi.scanDelete();
+      escaneoRedesSolicitado = true;
+      escaneoRedesIniciado = false;
+      escaneoRedesFallido = false;
+      if (WiFi.status() != WL_CONNECTED) {
+        pausarReintentosWifi = true;
+        WiFi.disconnect(false, false);
+        Serial.println("[WiFi] Pausando la reconexión para escanear redes.");
       }
       enableCORS();
       server.send(202, "application/json", "{\"status\":\"scanning\"}");
@@ -581,8 +637,11 @@ void setupHttpEndpoints() {
       json += "{\"ssid\":\"" + escaparJson(WiFi.SSID(i)) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
     }
     json += "]";
-    WiFi.scanDelete();
     server.send(200, "application/json", json);
+    if (escaneoRedesSolicitado) {
+      finalizarEscaneoRedes();
+      Serial.println("[WiFi] Escaneo terminado.");
+    }
   });
 
   server.on("/config", HTTP_POST, []() {
@@ -630,10 +689,14 @@ void setupHttpEndpoints() {
     ultimaPublicacionRegistro = 0;
     if (actualizarWifi) {
       mqttClient.disconnect();
+      pausarReintentosWifi = false;
       WiFi.disconnect(false, false);
       WiFi.begin(wifiSsid.c_str(), wifiPass.c_str());
       ultimoIntentoWiFi = millis();
       Serial.println("[CONFIG] Wi-Fi actualizado. Reconectando sin reiniciar.");
+    } else if (pausarReintentosWifi) {
+      pausarReintentosWifi = false;
+      reconectarWifiGuardado();
     } else {
       Serial.println("[CONFIG] Registro actualizado sin cambiar Wi-Fi ni reiniciar.");
     }
@@ -702,11 +765,12 @@ void loop() {
   comprobarBotonReset(); // primera línea: funciona tanto conectado como en modo AP
 
   if (modoApActivo) server.handleClient();
+  iniciarEscaneoRedesSolicitado();
 
   if (WiFi.status() != WL_CONNECTED) {
     fijarColorLed(COLOR_MODO_AP);
     const wl_status_t estadoWiFi = WiFi.status();
-    if (estadoWiFi == WL_IDLE_STATUS &&
+    if (!pausarReintentosWifi && estadoWiFi == WL_IDLE_STATUS &&
         millis() - ultimoIntentoWiFi >= TIMEOUT_CONEXION_WIFI_MS) {
       Serial.println("[WiFi] El intento sigue activo tras 30 s; se cancela antes de reintentar.");
       WiFi.disconnect(false, false);
@@ -714,7 +778,7 @@ void loop() {
       delay(100);
       return;
     }
-    if (estadoWiFi != WL_IDLE_STATUS &&
+    if (!pausarReintentosWifi && estadoWiFi != WL_IDLE_STATUS &&
         millis() - ultimoIntentoWiFi >= REINTENTO_WIFI_MS &&
         WiFi.getMode() == WIFI_AP_STA) {
       prefs.begin("gateway_cfg", true);

@@ -885,8 +885,13 @@
         }
       } catch (error) {
         gatewayApDeviceId = '';
-        $('#gateway-network-status').textContent = error.message || 'No se pudo conectar con el M5Stack. Autoriza el acceso a la red local o conecta el teléfono a "GatoGateway-Setup".';
-        if (showAlert) alert(error.message || 'No se pudo conectar al M5Stack. Comprueba que esté encendido y que el teléfono esté conectado a "GatoGateway-Setup".');
+        const message = error.name === 'AbortError'
+          ? 'El M5 no respondió. Conecta el teléfono a GatoGateway-Setup y vuelve a intentarlo.'
+          : error instanceof TypeError
+            ? 'No se pudo comunicar con el M5. Conecta el teléfono a GatoGateway-Setup, acepta permanecer conectado sin internet y permite el acceso a la red local en el navegador.'
+            : error.message || 'No se pudo conectar con el M5Stack. Comprueba que esté encendido y que el teléfono esté conectado a GatoGateway-Setup.';
+        $('#gateway-network-status').textContent = message;
+        if (showAlert) alert(message);
         return false;
       }
       return false;
@@ -937,7 +942,11 @@
           : 'No se encontraron redes. Escribe el nombre de la red manualmente.';
       } catch (error) {
         console.error('[Wi-Fi] No se pudieron escanear las redes:', error);
-        $('#gateway-network-status').textContent = error.message || 'No se pudieron escanear las redes. Escribe el nombre manualmente.';
+        $('#gateway-network-status').textContent = error.name === 'AbortError'
+          ? 'El M5 tardó demasiado en responder. Mantén el teléfono conectado a GatoGateway-Setup y vuelve a intentarlo.'
+          : error instanceof TypeError
+            ? 'No se pudo comunicar con el M5. Conecta el teléfono a GatoGateway-Setup, acepta permanecer conectado sin internet y permite el acceso a la red local en el navegador.'
+            : error.message || 'No se pudieron escanear las redes. Escribe el nombre manualmente.';
       } finally {
         button.disabled = false;
         button.textContent = originalText;
