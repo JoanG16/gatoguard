@@ -73,7 +73,6 @@ app.delete('/api/push/subscribe', async (req, res) => {
 async function ensureDeviceSchema() {
   try {
     await ensureGatewayRegistrySchema(pool);
-    await ensureRoutineDetailSchema(pool);
     await pool.query('ALTER TABLE gateways ADD COLUMN IF NOT EXISTS icono TEXT');
     await pool.query('ALTER TABLE gateways ADD COLUMN IF NOT EXISTS nombre TEXT');
     await pool.query('ALTER TABLE beacons ADD COLUMN IF NOT EXISTS nombre_mascota TEXT');
@@ -116,6 +115,7 @@ async function ensureDeviceSchema() {
     await pool.query('UPDATE historial_zona SET mac = UPPER(mac) WHERE mac <> UPPER(mac)');
     await pool.query('UPDATE anomalias SET mac = UPPER(mac) WHERE mac <> UPPER(mac)');
     await pool.query('UPDATE rutinas_patron SET mac = UPPER(mac) WHERE mac <> UPPER(mac)');
+    await ensureRoutineDetailSchema(pool);
   } catch (err) {
     console.error('[ERROR] ensureDeviceSchema:', err.message);
   }
