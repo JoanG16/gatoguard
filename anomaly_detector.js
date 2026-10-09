@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { Pool } = require('pg');
 const { ensurePushSchema, sendPushToSubscribers } = require('./push_notifications');
+const { ensureRoutineDetailSchema } = require('./routine_schema');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const POLL_INTERVAL_MS = Number(process.env.ANOMALY_POLL_INTERVAL_MS || 30000);
@@ -10,6 +11,7 @@ const IF_SCORE_THRESHOLD = Number(process.env.IF_SCORE_THRESHOLD || 0.62);
 const MIN_TRAINING_ROWS = Number(process.env.MIN_TRAINING_ROWS || 50);
 const ROUTINE_CONFIRM_POLLS = Number(process.env.ROUTINE_CONFIRM_POLLS || 3);
 const MIN_ROUTINE_DWELL_MINUTES = Number(process.env.MIN_ROUTINE_DWELL_MINUTES || 60);
+const MIN_ROUTINE_ALERT_DAYS = 2;
 const ZONE_WINDOW_SECONDS = Number(process.env.ZONE_WINDOW_SECONDS || 3);
 const MIN_RSSI_DBM = Number(process.env.MIN_RSSI_DBM || -65);
 const TREE_COUNT = 50;
@@ -29,13 +31,21 @@ async function umbralSinLecturas(mac) {
   return Number(rows[0]?.umbral_sin_lecturas_segundos || STALE_AFTER_SECONDS);
 }
 
-function franjaActual(fecha) {
+function franjaActual(fecha, minutosPorFranja = 30) {
   const partes = new Intl.DateTimeFormat('en-US', {
     timeZone: TIME_ZONE, hour: 'numeric', minute: 'numeric', hour12: false
   }).formatToParts(fecha);
   const hora = Number(partes.find(parte => parte.type === 'hour').value) % 24;
   const minuto = Number(partes.find(parte => parte.type === 'minute').value);
-  return Math.floor((hora * 60 + minuto) / 30);
+  return Math.floor((hora * 60 + minuto) / minutosPorFranja);
+}
+
+function fechaLocal(fecha) {
+  const partes = new Intl.DateTimeFormat('en-US', {
+    timeZone: TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(fecha);
+  const parte = tipo => partes.find(valor => valor.type === tipo).value;
+  return `${parte('year')}-${parte('month')}-${parte('day')}`;
 }
 
 function media(valores) {
@@ -169,6 +179,64 @@ async function resolverAnomalia(mac, tipo) {
   );
 }
 
+async function detectarVisitaOmitida(mac, nombreMascota) {
+  const ahora = new Date();
+  const franjaActual5 = franjaActual(ahora, 5);
+  if (franjaActual5 === 0) {
+    await resolverAnomalia(mac, 'visita_omitida');
+    return;
+  }
+
+  const { rows } = await pool.query(
+    `SELECT r.franja_5min, r.nombre_zona,
+            r.dias_aprendizaje,
+            COALESCE(
+              ROUND(r.duracion_aprendizaje_seg / NULLIF(r.visitas_completas_aprendizaje, 0))::int,
+              0
+            ) AS duracion_promedio_seg
+     FROM rutina_detalle r
+     JOIN rutina_estado e ON UPPER(TRIM(e.mac)) = UPPER(TRIM(r.mac))
+     WHERE UPPER(TRIM(r.mac)) = UPPER(TRIM($1))
+       AND now() >= e.inicio_aprendizaje + interval '2 days'
+       AND r.franja_5min < $2
+       AND r.dias_aprendizaje >= $3
+       AND r.visitas_aprendizaje >= $3
+       AND NOT EXISTS (
+         SELECT 1
+         FROM (
+           SELECT h.nombre_zona, h.cambiado_en,
+                  LEAD(h.cambiado_en) OVER (
+                    PARTITION BY UPPER(TRIM(h.mac)) ORDER BY h.cambiado_en
+                  ) AS siguiente
+           FROM historial_zona h
+           WHERE UPPER(TRIM(h.mac)) = UPPER(TRIM(r.mac))
+         ) h
+         WHERE h.nombre_zona = r.nombre_zona
+           AND h.cambiado_en < (($4::date + (r.franja_5min + 1) * interval '5 minutes') AT TIME ZONE $5)
+           AND COALESCE(h.siguiente, now()) > (($4::date + r.franja_5min * interval '5 minutes') AT TIME ZONE $5)
+       )
+     ORDER BY r.franja_5min, r.dias_aprendizaje DESC, r.visitas_aprendizaje DESC
+     LIMIT 1`,
+    [mac, franjaActual5, MIN_ROUTINE_ALERT_DAYS, fechaLocal(ahora), TIME_ZONE]
+  );
+  const visita = rows[0];
+  if (!visita) {
+    await resolverAnomalia(mac, 'visita_omitida');
+    return;
+  }
+
+  const minutos = Number(visita.franja_5min) * 5;
+  const horaEsperada = `${String(Math.floor(minutos / 60)).padStart(2, '0')}:${String(minutos % 60).padStart(2, '0')}`;
+  await abrirAnomalia(
+    mac,
+    'visita_omitida',
+    `${nombreMascota} no estuvo en "${visita.nombre_zona}" cerca de las ${horaEsperada}; la visita apareció en ${visita.dias_aprendizaje} días de aprendizaje.`,
+    null,
+    null,
+    2
+  );
+}
+
 async function detectarMac(mac) {
   const { rows: beacons } = await pool.query(
     `SELECT COALESCE(nombre_mascota, nombre, 'Mascota') AS nombre
@@ -238,10 +306,12 @@ async function detectarMac(mac) {
       console.warn('[ZONA] Se reciben lecturas, pero ninguna supera el RSSI mínimo para confirmar una zona.');
       await resolverAnomalia(mac, 'sin_datos');
       await resolverAnomalia(mac, 'zona_no_confirmada');
+      await resolverAnomalia(mac, 'visita_omitida');
       return;
     } else {
       await abrirAnomalia(mac, 'sin_datos', 'No hay una ubicación confirmada para el gato.', null, null, 1);
       await resolverAnomalia(mac, 'zona_no_confirmada');
+      await resolverAnomalia(mac, 'visita_omitida');
       return;
     }
   }
@@ -258,8 +328,10 @@ async function detectarMac(mac) {
       null,
       1
     );
+    await resolverAnomalia(mac, 'visita_omitida');
   } else {
     await resolverAnomalia(mac, 'sin_senal');
+    await detectarVisitaOmitida(mac, nombreMascota);
   }
   if (!sinSenal && ultimaLecturaEn && new Date(estado.actualizado_en) < new Date(ultimaLecturaEn)) {
     console.warn('[ZONA] Hay lecturas recientes, pero ninguna zona ha sido confirmada por RSSI suficiente.');
@@ -392,21 +464,51 @@ async function detectarRegistradas() {
       if (!macsActivas.has(mac)) estadoPorMac.delete(mac);
     }
     console.log(`Detectando anomalías para ${mascotas.length} MAC(s) asignada(s).`);
-    for (const mac of mascotas) await detectarMac(mac);
+    for (const mac of mascotas) {
+      try {
+        await detectarMac(mac);
+      } catch (err) {
+        console.error(`[ERROR] detectar MAC ${mac}:`, err.message);
+      }
+    }
   } finally {
     detectando = false;
   }
 }
 
 console.log('Detector de anomalías por capas iniciado para las MAC asignadas.');
-ensurePushSchema(pool)
-  .catch(err => console.error('[PUSH] No se pudo preparar la tabla de suscripciones:', err.message))
-  .finally(() => {
-    detectarRegistradas().catch(err => console.error('[ERROR] detectar:', err.message));
-    setInterval(() => detectarRegistradas().catch(err => console.error('[ERROR] detectar:', err.message)), POLL_INTERVAL_MS);
-  });
+let pollTimer;
+let shuttingDown = false;
 
-process.on('SIGINT', async () => {
+async function iniciarDeteccion() {
+  try {
+    await ensureRoutineDetailSchema(pool);
+    await ensurePushSchema(pool).catch(err => {
+      console.error('[PUSH] No se pudo preparar la tabla de suscripciones:', err.message);
+    });
+  } catch (err) {
+    console.error('[RUTINA] No se pudo preparar el esquema; se reintentará:', err.message);
+    if (!shuttingDown) pollTimer = setTimeout(iniciarDeteccion, POLL_INTERVAL_MS);
+    return;
+  }
+  if (shuttingDown) return;
+  detectarRegistradas().catch(err => console.error('[ERROR] detectar:', err.message));
+  pollTimer = setInterval(() => {
+    detectarRegistradas().catch(err => console.error('[ERROR] detectar:', err.message));
+  }, POLL_INTERVAL_MS);
+}
+
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    clearTimeout(pollTimer);
+  }
   await pool.end();
   process.exit(0);
-});
+}
+
+process.once('SIGINT', shutdown);
+process.once('SIGTERM', shutdown);
+iniciarDeteccion();

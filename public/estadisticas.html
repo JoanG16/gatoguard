@@ -23,6 +23,10 @@
     </section>
     <section class="rounded-2xl bg-white p-5 shadow-sm"><div class="mb-4 flex items-center gap-2"><span class="material-symbols-outlined text-primary">task_alt</span><div><h2 class="font-headline text-xl font-semibold">Cumplimiento por lugar</h2><p id="subtitulo-cumplimiento" class="text-sm text-on-surface-variant">Días en los que siguió las franjas habituales.</p></div></div><div id="cumplimiento-lugares" class="grid grid-cols-3 gap-2"></div></section>
     <section id="indicador" class="rounded-2xl bg-white p-5 shadow-sm"></section>
+    <section class="rounded-2xl bg-white p-5 shadow-sm">
+      <div class="mb-3 flex items-center gap-2"><span class="material-symbols-outlined text-primary">auto_awesome</span><div><h2 class="font-headline text-xl font-semibold">Aprendizaje automático</h2><p class="text-sm text-on-surface-variant">Cada gato aprende por separado: detección preliminar desde el día 2, rutina disponible al día 7 y reconfirmación al día 14.</p></div></div>
+      <div id="estado-aprendizaje" class="space-y-2"><p class="text-sm text-on-surface-variant">Cargando estado...</p></div>
+    </section>
   </main>
   <dialog id="dialogo-hora" class="rounded-xl p-0 shadow-xl backdrop:bg-black/40">
     <div class="p-6 space-y-3 w-[min(90vw,26rem)]">
@@ -62,6 +66,42 @@
     function urlPagina(path){const url=new URL(path,location.href);if(macSeleccionada==='all')url.searchParams.delete('gato');else url.searchParams.set('gato',macSeleccionada);return `${url.pathname}${url.search}`}
     function urlApi(path){const url=new URL(urlPagina(path),location.href);url.searchParams.set('t',String(Date.now()));return `${url.pathname}${url.search}`}
     function actualizarEnlacesGato(){document.querySelectorAll('nav a[href],header a[href]').forEach(link=>{const url=new URL(link.href,location.href);if(!['index.html','calendario.html','estadisticas.html','alertas.html','alertas-archivadas.html'].includes(url.pathname.split('/').pop()))return;link.href=urlPagina(`${url.pathname}${url.search}${url.hash}`)})}
+    function mostrarEstadoAprendizaje(estados){
+      const contenedor=$('#estado-aprendizaje');
+      contenedor.replaceChildren();
+      if(!estados.length){
+        const vacio=document.createElement('p');
+        vacio.className='text-sm text-on-surface-variant';
+        vacio.textContent='No hay gatos asignados para aprender una rutina.';
+        contenedor.append(vacio);
+        return;
+      }
+      estados.forEach(estado=>{
+        const tarjeta=document.createElement('article');
+        tarjeta.className='rounded-xl border border-surface-variant bg-surface-container-lowest p-4';
+        const titulo=document.createElement('h3');
+        titulo.className='font-semibold text-on-surface';
+        titulo.textContent=estado.nombre;
+        const detalle=document.createElement('p');
+        detalle.className='mt-1 text-sm text-on-surface-variant';
+        if(!estado.inicio_aprendizaje){
+          detalle.textContent='Esperando los primeros cambios de zona para iniciar el aprendizaje.';
+        }else if(estado.rutina_confirmada){
+          detalle.textContent='Rutina reconfirmada: completó 7 días de aprendizaje y 7 días adicionales de observación.';
+        }else if(estado.periodo_confirmacion_completo){
+          detalle.textContent='Completó los 14 días de observación, pero todavía no hay suficientes repeticiones para reconfirmar una rutina.';
+        }else if(estado.rutina_disponible){
+          detalle.textContent=`Rutina aprendida tras 7 días. Reconfirmación prevista para ${fechaHoraTexto(estado.fin_reconfirmacion)}.`;
+        }else if(estado.deteccion_preliminar){
+          detalle.textContent=`Detección preliminar activa desde el día 2. La rutina estará disponible el ${fechaHoraTexto(estado.fin_aprendizaje)}.`;
+        }else{
+          detalle.textContent=`Aprendizaje inicial (${estado.dias_desde_inicio} de 2 días). La detección preliminar comienza el ${fechaHoraTexto(new Date(new Date(estado.inicio_aprendizaje).getTime()+2*86400000))}.`;
+        }
+        tarjeta.append(titulo,detalle);
+        contenedor.append(tarjeta);
+      });
+    }
+    const fechaHoraTexto=valor=>new Intl.DateTimeFormat('es-CO',{dateStyle:'medium',timeStyle:'short',timeZone:'America/Bogota'}).format(new Date(valor));
     async function iniciar(){
       const res=await fetch(`/api/gatos?t=${Date.now()}`,{cache:'no-store'});
       if(!res.ok)throw new Error(`HTTP ${res.status}`);
@@ -75,11 +115,13 @@
       await cargar();
     }
     async function cargar(){
-      const [estadisticasRes,rutinaRes]=await Promise.all([fetch(urlApi(`/api/estadisticas?modo=${modo}&desplazamiento=${desplazamiento}`),{cache:'no-store'}),fetch(urlApi('/api/rutina'),{cache:'no-store'})]);
+      const [estadisticasRes,rutinaRes,estadoRes]=await Promise.all([fetch(urlApi(`/api/estadisticas?modo=${modo}&desplazamiento=${desplazamiento}`),{cache:'no-store'}),fetch(urlApi('/api/rutina'),{cache:'no-store'}),fetch(urlApi('/api/rutina-estado'),{cache:'no-store'})]);
       const res=estadisticasRes;
       if(!res.ok) throw new Error('No se pudieron cargar las estadísticas');
       if(!rutinaRes.ok) throw new Error('No se pudo cargar la rutina habitual');
-      const data=await res.json(), rutina=await rutinaRes.json();
+      if(!estadoRes.ok) throw new Error('No se pudo cargar el estado de aprendizaje');
+      const data=await res.json(), rutina=await rutinaRes.json(), estadoAprendizaje=await estadoRes.json();
+      mostrarEstadoAprendizaje(estadoAprendizaje);
       const dias=modo==='month'?31:7;
       const inicioTexto=claveFecha(data.inicio);
       const actividadRes=await fetch(urlApi(`/api/rutina-periodo?dias=${dias}&inicio=${inicioTexto}`),{cache:'no-store'});

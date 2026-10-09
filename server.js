@@ -20,6 +20,7 @@ const {
   savePushSubscription,
   removePushSubscription,
 } = require('./push_notifications');
+const { ensureRoutineDetailSchema } = require('./routine_schema');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, statement_timeout: 10000, query_timeout: 10000 });
 pool.on('error', (err) => console.error('[ERROR] Pool de Postgres:', err.message));
@@ -72,6 +73,7 @@ app.delete('/api/push/subscribe', async (req, res) => {
 async function ensureDeviceSchema() {
   try {
     await ensureGatewayRegistrySchema(pool);
+    await ensureRoutineDetailSchema(pool);
     await pool.query('ALTER TABLE gateways ADD COLUMN IF NOT EXISTS icono TEXT');
     await pool.query('ALTER TABLE gateways ADD COLUMN IF NOT EXISTS nombre TEXT');
     await pool.query('ALTER TABLE beacons ADD COLUMN IF NOT EXISTS nombre_mascota TEXT');
@@ -1168,6 +1170,13 @@ app.get('/api/rutina', async (req, res) => {
          FROM rutinas_patron
          WHERE dia_tipo = 'todos'
            AND ($1::text IS NULL OR UPPER(TRIM(mac)) = UPPER(TRIM($1)))
+           AND EXISTS (
+             SELECT 1
+             FROM rutina_estado re
+             JOIN beacons b ON b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(re.mac))
+             WHERE UPPER(TRIM(re.mac)) = UPPER(TRIM(rutinas_patron.mac))
+               AND re.fin_aprendizaje <= now()
+           )
        ),
        seleccionados AS (
          SELECT mac, franja_horaria, nombre_zona
@@ -1194,6 +1203,49 @@ app.get('/api/rutina', async (req, res) => {
     res.json(rows);
   } catch (err) {
     console.error('[ERROR] /api/rutina:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/rutina-estado', async (req, res) => {
+  try {
+    const mac = await obtenerMacFiltroHome(req);
+    const { rows } = await pool.query(
+      `SELECT DISTINCT ON (UPPER(TRIM(b.mac)))
+              UPPER(TRIM(b.mac)) AS mac,
+              COALESCE(b.nombre_mascota, b.nombre, 'Mascota') AS nombre,
+              re.inicio_aprendizaje,
+              re.fin_aprendizaje,
+              re.fin_reconfirmacion,
+              CASE WHEN re.inicio_aprendizaje IS NULL THEN 0
+                   ELSE GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - re.inicio_aprendizaje)) / 86400))::int
+              END AS dias_desde_inicio,
+              COALESCE(now() >= re.inicio_aprendizaje + interval '2 days', false) AS deteccion_preliminar,
+              COALESCE(now() >= re.fin_aprendizaje, false) AS rutina_disponible,
+              COALESCE(now() >= re.fin_reconfirmacion, false) AS periodo_confirmacion_completo,
+              COALESCE(
+                now() >= re.fin_reconfirmacion
+                AND EXISTS (
+                  SELECT 1
+                  FROM rutina_detalle rd
+                  WHERE UPPER(TRIM(rd.mac)) = UPPER(TRIM(b.mac))
+                    AND rd.dias_aprendizaje >= 2
+                    AND rd.visitas_aprendizaje >= 2
+                    AND rd.dias_reconfirmacion >= 2
+                ),
+                false
+              ) AS rutina_confirmada
+       FROM beacons b
+       LEFT JOIN rutina_estado re ON UPPER(TRIM(re.mac)) = UPPER(TRIM(b.mac))
+       WHERE b.asignado = true
+         AND ($1::text IS NULL OR UPPER(TRIM(b.mac)) = UPPER(TRIM($1)))
+       ORDER BY UPPER(TRIM(b.mac)), b.ultimo_visto DESC NULLS LAST, b.updated_at DESC`,
+      [mac]
+    );
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.json(rows);
+  } catch (err) {
+    console.error('[ERROR] /api/rutina-estado:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
