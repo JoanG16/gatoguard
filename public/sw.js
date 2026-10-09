@@ -1,4 +1,5 @@
-const CACHE_NAME = 'gatoguard-shell-v5';
+﻿const CACHE_NAME = 'gatoguard-shell-v6';
+const DATA_CACHE = 'gatoguard-data-v1';
 const APP_SHELL = [
   '/',
   '/index.html',
@@ -26,7 +27,7 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys => Promise.all(
-      keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
+      keys.filter(key => key !== CACHE_NAME && key !== DATA_CACHE).map(key => caches.delete(key))
     ))
   );
   self.clients.claim();
@@ -62,7 +63,24 @@ self.addEventListener('notificationclick', event => {
 
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) return;
-  if (new URL(event.request.url).pathname.startsWith('/api/')) return;
+  const ruta = new URL(event.request.url).pathname;
+  if (ruta.startsWith('/api/')) {
+    if (ruta.startsWith('/api/push')) return;
+    event.respondWith(
+      fetch(event.request).then(response => {
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(DATA_CACHE).then(cache => cache.put(event.request, copy));
+        }
+        return response;
+      }).catch(() => caches.match(event.request, { cacheName: DATA_CACHE }).then(response =>
+        response || new Response(JSON.stringify({ error: 'Sin conexión' }), {
+          status: 503, headers: { 'Content-Type': 'application/json' }
+        })
+      ))
+    );
+    return;
+  }
   event.respondWith(
     fetch(event.request).then(response => {
       const copy = response.clone();
@@ -131,3 +149,4 @@ async function syncGatewayOutbox() {
 self.addEventListener('sync', event => {
   if (event.tag === 'sync-gateway-outbox') event.waitUntil(syncGatewayOutbox());
 });
+
