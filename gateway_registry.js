@@ -224,7 +224,7 @@ async function registerGateway(pool, gateway) {
   });
 }
 
-async function updateGatewayZone(pool, { device_id, nombre_zona, icono }) {
+async function updateGatewayZone(pool, { device_id, nombre_zona, icono, provisioning_token }) {
   if (typeof nombre_zona !== 'string' || !nombre_zona.trim()) {
     throw new Error('Escribe el nombre de la zona para continuar.');
   }
@@ -243,6 +243,16 @@ async function updateGatewayZone(pool, { device_id, nombre_zona, icono }) {
       [device_id]
     );
     if (!lockedRows[0]) return null;
+    const { rows: tokenRows } = await client.query(
+      'SELECT provisioning_token FROM gateway_registry WHERE device_id = $1 FOR UPDATE',
+      [device_id]
+    );
+    const tokenRegistrado = tokenRows[0]?.provisioning_token || '';
+    if (tokenRegistrado && provisioning_token && tokenRegistrado !== provisioning_token) {
+      const error = new Error('El token de configuración no corresponde a este gateway.');
+      error.code = DEVICE_CONFLICT;
+      throw error;
+    }
     const occupiedBy = await occupiedGateway(client, currentRows[0].cliente_id, device_id, canonicalName);
     if (occupiedBy) {
       const error = new Error(`La zona "${canonicalName}" ya está asignada al M5Stack ${occupiedBy}.`);
@@ -260,13 +270,14 @@ async function updateGatewayZone(pool, { device_id, nombre_zona, icono }) {
     const { rows: registryRows } = await client.query(
       `INSERT INTO gateway_registry
          (device_id, cliente_id, provisioning_token, nombre_zona, config_version, deleted, updated_at)
-       VALUES ($1, $2, '', $3, 1, false, now())
+       VALUES ($1, $2, $3, $4, 1, false, now())
        ON CONFLICT (device_id) DO UPDATE SET
+         provisioning_token = COALESCE(NULLIF(gateway_registry.provisioning_token, ''), EXCLUDED.provisioning_token),
          nombre_zona = EXCLUDED.nombre_zona,
          config_version = gateway_registry.config_version + 1,
          updated_at = now()
        RETURNING *`,
-      [device_id, currentRows[0].cliente_id, canonicalName]
+      [device_id, currentRows[0].cliente_id, provisioning_token || tokenRegistrado, canonicalName]
     );
     await client.query(
       `INSERT INTO zonas (device_id, nombre_zona)
@@ -298,51 +309,58 @@ async function deleteGateway(pool, { device_id, provisioning_token, cliente_id, 
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`gateway-device:${device_id}`]);
     }
 
-    const { rows: registryRows } = await client.query(
+    let { rows: registryRows } = await client.query(
       'SELECT * FROM gateway_registry WHERE device_id = $1 FOR UPDATE',
       [device_id]
     );
-    const registry = registryRows[0];
+    let registry = registryRows[0];
     if (registry && provisioning_token && registry.provisioning_token && registry.provisioning_token !== provisioning_token) {
       const error = new Error('El token de configuración no corresponde a este gateway.');
       error.code = DEVICE_CONFLICT;
       throw error;
     }
     if (!registry) {
-      const { rows: gatewayRows } = await client.query(
-        'SELECT cliente_id, nombre_zona FROM gateways WHERE device_id = $1 FOR UPDATE',
-        [device_id]
-      );
-      if (!gatewayRows[0] && !(provisioning_token && cliente_id && nombre_zona)) return null;
+      if (!currentGateway && !(provisioning_token && cliente_id && nombre_zona)) return null;
       await client.query(
         `INSERT INTO gateway_registry
            (device_id, cliente_id, provisioning_token, nombre_zona, config_version, deleted, updated_at)
-         VALUES ($1, $2, $3, $4, 1, true, now())`,
+         VALUES ($1, $2, $3, $4, 1, false, now())`,
         [
           device_id,
-          gatewayRows[0]?.cliente_id || cliente_id,
+          currentGateway?.cliente_id || cliente_id,
           provisioning_token || '',
-          gatewayRows[0]?.nombre_zona || nombre_zona || device_id
+          currentGateway?.nombre_zona || nombre_zona || device_id
         ]
       );
-    } else if (!registry.deleted) {
+      const inserted = await client.query(
+        'SELECT * FROM gateway_registry WHERE device_id = $1 FOR UPDATE',
+        [device_id]
+      );
+      registryRows = inserted.rows;
+      registry = registryRows[0];
+    }
+    if (!registry.deleted) {
       await client.query(
         `UPDATE gateway_registry
          SET deleted = true, config_version = config_version + 1, updated_at = now()
          WHERE device_id = $1`,
         [device_id]
       );
-    } else {
-      return { ...registry, deleted: true };
     }
-    await client.query('DELETE FROM zonas WHERE device_id = $1', [device_id]);
-    const { rowCount } = await client.query('DELETE FROM gateways WHERE device_id = $1', [device_id]);
     const { rows: finalRegistryRows } = await client.query(
       'SELECT * FROM gateway_registry WHERE device_id = $1',
       [device_id]
     );
+    const finalRegistry = finalRegistryRows[0];
+    await client.query('DELETE FROM zonas WHERE device_id = $1', [device_id]);
+    const { rowCount } = await client.query('DELETE FROM gateways WHERE device_id = $1', [device_id]);
+    await client.query(
+      'DELETE FROM gateway_registry WHERE device_id = $1 AND cliente_id = $2',
+      [device_id, finalRegistry.cliente_id]
+    );
     return {
-      ...finalRegistryRows[0],
+      ...finalRegistry,
+      deleted: true,
       ok: true,
       existed: rowCount > 0
     };

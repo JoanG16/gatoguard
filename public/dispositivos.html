@@ -125,6 +125,9 @@
               <button id="connect-gateway-ap" type="button" class="flex-1 rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-white">Conectar a M5Stack</button>
               <button id="scan-gateway-networks" type="button" class="flex-1 rounded-xl border border-primary bg-white px-3 py-2 text-sm font-semibold text-primary">Escanear redes</button>
             </div>
+            <p class="mt-3 text-xs font-medium text-on-surface-variant">ID físico del M5Stack</p>
+            <p id="gateway-device-id-display" class="mt-1 break-all font-mono text-sm font-semibold text-on-surface">Conecta el M5 para leer su ID</p>
+            <p class="mt-1 text-xs text-on-surface-variant">El ID viene grabado en el equipo y no se puede cambiar.</p>
             <div class="mt-3">
               <label class="block text-xs font-medium uppercase tracking-[0.12em] text-on-surface-variant">Red detectada</label>
               <select id="gateway-network-list" class="mt-1 w-full rounded-xl border border-surface-variant bg-surface-container-low px-3 py-2 text-sm text-on-surface outline-none focus:ring-2 focus:ring-primary/30">
@@ -166,6 +169,7 @@
   <script>
     const iconOptions = ['location_on', 'kitchen', 'restaurant', 'cleaning_services', 'bed', 'chair', 'weekend', 'pets'];
     const state = { activeTab: 'gateways', formMode: 'gateway-edit', gatewayList: [], beaconList: [], zoneList: [] };
+    let gatewayApDeviceId = '';
     const $ = (selector) => document.querySelector(selector);
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -219,9 +223,11 @@
       $('#device-mac').value = mac;
       $('#device-name').value = name;
       $('#gateway-zone').value = zone;
-      $('#gateway-device-id').value = deviceId || target || 'GW-' + Math.random().toString(16).slice(2, 10).toUpperCase();
+      $('#gateway-device-id').value = deviceId || target;
+      $('#gateway-device-id-display').textContent = deviceId || target || 'Conecta el M5 para leer su ID';
       $('#gateway-client-id').value = clienteId || 'cliente-demo';
       $('#gateway-provisioning-token').value = provisioningToken;
+      gatewayApDeviceId = '';
       if (mode === 'gateway-edit') {
       $('#gateway-wifi-ssid').value = '';
       $('#gateway-wifi-pass').value = '';
@@ -292,6 +298,7 @@
       $('#device-modal').classList.add('hidden');
       $('#device-modal').classList.remove('flex');
       $('#device-form').reset();
+      gatewayApDeviceId = '';
       if (typeof detenerEscaneoQR === 'function') detenerEscaneoQR();
     }
 
@@ -563,7 +570,6 @@
       title: 'Agregar gateway',
       mode: 'gateway-create',
       icon: 'location_on',
-      deviceId: 'GW-' + Math.random().toString(16).slice(2, 10).toUpperCase(),
       clienteId: 'cliente-demo',
       mqttHost: 'broker.hivemq.com',
       mqttPort: 1883
@@ -854,13 +860,33 @@
         if (!res.ok) throw new Error('No responde');
         const data = await res.json().catch(() => ({ ok: true }));
         if (data.ok) {
-          $('#gateway-network-status').textContent = 'M5Stack conectado. Ya puedes buscar las redes cercanas.';
-          if (showAlert) alert('Conectado al gateway. Ahora puedes escanear las redes cercanas.');
+          const identityResponse = await fetchConTiempo('http://192.168.4.1/identity', {
+            mode: 'cors',
+            cache: 'no-store'
+          }, 6000);
+          const identity = await identityResponse.json();
+          if (!identityResponse.ok || !identity.ok || !/^GW-[0-9A-F]{12}$/.test(identity.device_id || '')) {
+            throw new Error('Este firmware no informa el ID físico del M5. Actualiza el firmware una vez y vuelve a conectar.');
+          }
+          const expectedId = $('#device-mode').value === 'gateway-edit'
+            ? $('#gateway-device-id').value
+            : '';
+          if (expectedId && expectedId !== identity.device_id) {
+            throw new Error(`Conectaste ${identity.device_id}, pero estás editando ${expectedId}. No se aplicó ningún cambio.`);
+          }
+          gatewayApDeviceId = identity.device_id;
+          $('#gateway-device-id').value = identity.device_id;
+          $('#gateway-device-id-display').textContent = identity.device_id;
+          $('#gateway-network-status').textContent = identity.token_guardado
+            ? `M5 ${identity.device_id} identificado; token de registro guardado.`
+            : `M5 ${identity.device_id} identificado; se recuperará el token al guardar.`;
+          if (showAlert) alert(`Conectado al M5Stack ${identity.device_id}. Su ID físico quedó identificado.`);
           return true;
         }
       } catch (error) {
-        $('#gateway-network-status').textContent = 'El navegador no permitió conectar con el M5Stack. Autoriza el acceso a la red local o escribe el nombre de la red manualmente.';
-        if (showAlert) alert('No se pudo conectar al M5Stack en modo AP. Comprueba que esté encendido y que el gateway esté en "GatoGateway-Setup".');
+        gatewayApDeviceId = '';
+        $('#gateway-network-status').textContent = error.message || 'No se pudo conectar con el M5Stack. Autoriza el acceso a la red local o conecta el teléfono a "GatoGateway-Setup".';
+        if (showAlert) alert(error.message || 'No se pudo conectar al M5Stack. Comprueba que esté encendido y que el teléfono esté conectado a "GatoGateway-Setup".');
         return false;
       }
       return false;
@@ -940,16 +966,40 @@ $('#device-form').addEventListener('submit', async (event) => {
       const target = payload.target;
 
       if (mode === 'gateway-create' || mode === 'gateway-edit') {
-        const device_id = (payload.device_id || target || '').trim() || 'GW-' + Math.random().toString(16).slice(2, 10).toUpperCase();
+        const device_id = (payload.device_id || target || '').trim();
         const wifiSsid = (payload.wifi_ssid || '').trim();
         const wifiPass = payload.wifi_password || '';
         const nombreZona = (payload.nombre_zona || '').trim();
         const icono = payload.icono || 'location_on';
         const cliente_id = (payload.cliente_id || 'cliente-demo').trim() || 'cliente-demo';
-        const provisioning_token = payload.provisioning_token || nuevoTokenProvisionamiento();
         const quiereReconfigurarWifi = wifiSsid.length > 0;
+        const conectadoAlM5 = gatewayApDeviceId === device_id;
+        const tokenGuardado = payload.provisioning_token || '';
+        const provisioning_token = tokenGuardado || (
+          mode === 'gateway-create' || conectadoAlM5 ? nuevoTokenProvisionamiento() : ''
+        );
+        if (!device_id) {
+          alert('Conéctate al punto de acceso del M5Stack para leer su ID físico antes de guardarlo.');
+          return;
+        }
+        if (mode === 'gateway-edit' && target && target !== device_id) {
+          alert('El ID físico del gateway no se puede cambiar.');
+          return;
+        }
         if (mode === 'gateway-create' && !quiereReconfigurarWifi) {
           alert('Selecciona o escribe la red Wi-Fi. Si tiene contraseña, también debes ingresarla.');
+          return;
+        }
+        if (mode === 'gateway-create' && !conectadoAlM5) {
+          alert('Conéctate al M5Stack para verificar su ID físico antes de darlo de alta.');
+          return;
+        }
+        if (quiereReconfigurarWifi && !conectadoAlM5) {
+          alert('Conéctate al punto de acceso del M5Stack antes de cambiar sus credenciales Wi-Fi.');
+          return;
+        }
+        if (mode === 'gateway-edit' && !tokenGuardado && !conectadoAlM5) {
+          alert('Este gateway no tiene un token recuperable. Conéctate a su punto de acceso una vez; la app generará y guardará un token nuevo sin cambiar su ID.');
           return;
         }
         if (!nombreZona) {
@@ -985,7 +1035,7 @@ $('#device-form').addEventListener('submit', async (event) => {
           conflict: false
         };
 
-        if (quiereReconfigurarWifi) {
+        if (conectadoAlM5) {
           await GatewayOutbox.save(operation);
           const configuracion = await enviarCredencialesAlM5(
             wifiSsid,

@@ -769,11 +769,11 @@ app.get('/api/gateways', async (req, res) => {
 
 app.patch('/api/gateways/:device_id', async (req, res) => {
   const { device_id } = req.params;
-  const { nombre_zona, icono } = req.body || {};
+  const { nombre_zona, icono, provisioning_token } = req.body || {};
   try {
     let resultado;
     if (typeof nombre_zona === 'string' && nombre_zona.trim()) {
-      resultado = await updateGatewayZone(pool, { device_id, nombre_zona, icono });
+      resultado = await updateGatewayZone(pool, { device_id, nombre_zona, icono, provisioning_token });
       if (!resultado) return res.status(404).json({ error: 'Gateway no encontrado.' });
       publicarConfigGateway({
        cliente_id: resultado.cliente_id,
@@ -801,13 +801,13 @@ app.patch('/api/gateways/:device_id', async (req, res) => {
     res.json(rows[0]);
   } catch (err) {
     console.error('[ERROR] /api/gateways/:device_id:', err.message);
-    res.status(err.code === DUPLICATE_ZONE ? 409 : 500).json({ error: err.message });
+    res.status([DUPLICATE_ZONE, DEVICE_CONFLICT].includes(err.code) ? 409 : 500).json({ error: err.message });
   }
 });
 
 app.put('/api/gateways/:id', async (req, res) => {
   const { id } = req.params;
-  const { nombre_zona, icono } = req.body || {};
+  const { nombre_zona, icono, provisioning_token } = req.body || {};
 
   try {
     const { rows: gatewayRows } = await pool.query('SELECT device_id FROM gateways WHERE id = $1', [id]);
@@ -815,7 +815,8 @@ app.put('/api/gateways/:id', async (req, res) => {
     const resultado = await updateGatewayZone(pool, {
       device_id: gatewayRows[0].device_id,
       nombre_zona,
-      icono
+      icono,
+      provisioning_token
     });
     if (!resultado) return res.status(404).json({ error: 'Gateway no encontrado.' });
     const payload = {
@@ -835,7 +836,7 @@ app.put('/api/gateways/:id', async (req, res) => {
     });
   } catch (err) {
     console.error('[ERROR] /api/gateways/:id:', err.message);
-    res.status(err.code === DUPLICATE_ZONE ? 409 : 500).json({ error: err.message });
+    res.status([DUPLICATE_ZONE, DEVICE_CONFLICT].includes(err.code) ? 409 : 500).json({ error: err.message });
   }
 });
 
