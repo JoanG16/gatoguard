@@ -13,6 +13,13 @@ const {
   updateGatewayZone,
   deleteGateway
 } = require('./gateway_registry');
+const {
+  ensurePushSchema,
+  getVapidPublicKey,
+  PushSubscriptionValidationError,
+  savePushSubscription,
+  removePushSubscription,
+} = require('./push_notifications');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, statement_timeout: 10000, query_timeout: 10000 });
 pool.on('error', (err) => console.error('[ERROR] Pool de Postgres:', err.message));
@@ -23,6 +30,44 @@ const PORT_CANDIDATES = Array.from(new Set([Number(process.env.PORT || process.e
 const GATEWAY_ONLINE_WINDOW_SECONDS = 35;
 app.use(express.json());
 app.get('/api/health', (req, res) => res.json({ ok: true }));
+
+app.get('/api/push/vapid-public-key', (req, res) => {
+  const publicKey = getVapidPublicKey();
+  if (!publicKey) return res.status(503).json({ error: 'Las notificaciones push aún no están configuradas en el servidor.' });
+  res.set('Cache-Control', 'no-store');
+  res.json({ publicKey });
+});
+
+app.post('/api/push/subscribe', async (req, res) => {
+  if (!getVapidPublicKey()) {
+    return res.status(503).json({ error: 'Las notificaciones push aún no están configuradas en el servidor.' });
+  }
+  const mac = req.body?.mac == null || req.body.mac === ''
+    ? null
+    : String(req.body.mac).trim().replace(/-/g, ':').toUpperCase();
+  if (mac && !/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac)) {
+    return res.status(400).json({ error: 'La MAC asociada a la notificación no es válida.' });
+  }
+  try {
+    await savePushSubscription(pool, req.body.subscription, mac);
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    if (err instanceof PushSubscriptionValidationError) return res.status(400).json({ error: err.message });
+    console.error('[PUSH] No se pudo guardar la suscripción:', err.message);
+    res.status(500).json({ error: 'No se pudo guardar la suscripción push.' });
+  }
+});
+
+app.delete('/api/push/subscribe', async (req, res) => {
+  try {
+    await removePushSubscription(pool, req.body.subscription);
+    res.json({ ok: true });
+  } catch (err) {
+    if (err instanceof PushSubscriptionValidationError) return res.status(400).json({ error: err.message });
+    console.error('[PUSH] No se pudo eliminar la suscripción:', err.message);
+    res.status(500).json({ error: 'No se pudo eliminar la suscripción push.' });
+  }
+});
 
 async function ensureDeviceSchema() {
   try {
@@ -1424,4 +1469,8 @@ function iniciarServidor(portIndex = 0) {
   });
 }
 
-iniciarServidor();
+ensurePushSchema(pool)
+  .catch(err => {
+    console.error('[PUSH] No se pudo preparar la tabla de suscripciones:', err.message);
+  })
+  .finally(() => iniciarServidor());

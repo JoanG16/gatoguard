@@ -48,6 +48,16 @@ CREATE TABLE IF NOT EXISTS beacons (
 CREATE INDEX IF NOT EXISTS idx_gateways_cliente ON gateways (cliente_id);
 CREATE INDEX IF NOT EXISTS idx_beacons_asignado ON beacons (asignado, ultimo_visto DESC);
 
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint      TEXT PRIMARY KEY,
+    subscription  JSONB NOT NULL,
+    mac           TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_mac ON push_subscriptions (UPPER(mac));
+
 -- Si tienes la extensión timescaledb:
 -- CREATE EXTENSION IF NOT EXISTS timescaledb;
 -- SELECT create_hypertable('telemetria_raw', 'time', if_not_exists => TRUE, migrate_data => TRUE);

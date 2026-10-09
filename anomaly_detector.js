@@ -1,5 +1,6 @@
 require('dotenv').config();
 const { Pool } = require('pg');
+const { ensurePushSchema, sendPushToSubscribers } = require('./push_notifications');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const POLL_INTERVAL_MS = Number(process.env.ANOMALY_POLL_INTERVAL_MS || 30000);
@@ -140,6 +141,14 @@ async function abrirAnomalia(mac, tipo, descripcion, zScore, ifScore, capa = 3, 
       [mac, tipo, descripcion, capa, zScore, ifScore]
     );
     console.warn(`[ANOMALIA][Capa ${capa}] ${descripcion}`);
+    void sendPushToSubscribers(pool, {
+      mac,
+      tipo,
+      title: 'Nueva alerta de GatoGuard',
+      body: descripcion,
+      url: `/alertas.html?gato=${encodeURIComponent(mac)}`,
+      tag: `alerta-${mac}-${Date.now()}`,
+    }).catch(err => console.error('[PUSH] Error al enviar alerta:', err.message));
   } else if (rows[0].descripcion !== descripcion) {
     await pool.query(
       `UPDATE anomalias
@@ -390,8 +399,12 @@ async function detectarRegistradas() {
 }
 
 console.log('Detector de anomalías por capas iniciado para las MAC asignadas.');
-detectarRegistradas().catch(err => console.error('[ERROR] detectar:', err.message));
-setInterval(() => detectarRegistradas().catch(err => console.error('[ERROR] detectar:', err.message)), POLL_INTERVAL_MS);
+ensurePushSchema(pool)
+  .catch(err => console.error('[PUSH] No se pudo preparar la tabla de suscripciones:', err.message))
+  .finally(() => {
+    detectarRegistradas().catch(err => console.error('[ERROR] detectar:', err.message));
+    setInterval(() => detectarRegistradas().catch(err => console.error('[ERROR] detectar:', err.message)), POLL_INTERVAL_MS);
+  });
 
 process.on('SIGINT', async () => {
   await pool.end();

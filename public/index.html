@@ -178,7 +178,8 @@ const POLL_MS = 3000;
 const STALE_AFTER_S = 60;
 const $ = (sel) => document.querySelector(sel);
 
-let notificacionesActivas = false;
+let notificacionesActivas = 'Notification' in window && Notification.permission === 'granted';
+let suscripcionPushActiva = false;
 let ultimaZonaConocida = null;
 let estadosActuales = [];
 let gatosActuales = [];
@@ -189,6 +190,52 @@ let ultimaHoraNotificada = null;
 
 function gatoSeleccionado() {
   return $('#filtro-gato-home').value;
+}
+
+function esIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function appInstalada() {
+  return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+}
+
+function clavePushBytes(clave) {
+  const base64 = clave.replace(/-/g, '+').replace(/_/g, '/');
+  const binario = atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='));
+  return Uint8Array.from(binario, caracter => caracter.charCodeAt(0));
+}
+
+async function sincronizarSuscripcionPush(crearSiFalta) {
+  suscripcionPushActiva = false;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return false;
+  const registro = await navigator.serviceWorker.ready;
+  let suscripcion = await registro.pushManager.getSubscription();
+  if (!suscripcion && !crearSiFalta) return false;
+
+  if (!suscripcion) {
+    const respuestaClave = await fetch('/api/push/vapid-public-key', { cache: 'no-store' });
+    const datosClave = await respuestaClave.json();
+    if (!respuestaClave.ok) throw new Error(datosClave.error || `HTTP ${respuestaClave.status}`);
+    suscripcion = await registro.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: clavePushBytes(datosClave.publicKey),
+    });
+  }
+
+  const respuesta = await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      subscription: suscripcion.toJSON(),
+      mac: gatoSeleccionado() === 'all' ? null : gatoSeleccionado(),
+    }),
+  });
+  const resultado = await respuesta.json();
+  if (!respuesta.ok) throw new Error(resultado.error || `HTTP ${respuesta.status}`);
+  suscripcionPushActiva = true;
+  return true;
 }
 
 function urlApiHome(path) {
@@ -412,7 +459,7 @@ async function actualizarAnomalias() {
     const avisosPermitidos = nuevas.some(alerta => alerta.tipo === 'sin_senal'
       ? configuracionAvisos.avisos_sin_lecturas
       : configuracionAvisos.avisos_alertas);
-    if (idsAlertasConocidas.size && nuevas.length && notificacionesActivas && Notification.permission === 'granted' && avisosPermitidos) {
+    if (idsAlertasConocidas.size && nuevas.length && !suscripcionPushActiva && notificacionesActivas && Notification.permission === 'granted' && avisosPermitidos) {
       new Notification('Nueva alerta de GatoGuard', { body: 'Revisa la sección de alertas para ver los detalles.' });
     }
     idsAlertasConocidas = new Set(anomalias.map(a => a.id));
@@ -537,9 +584,27 @@ function dispararNotificacion(nuevaZona) {
 
 $('#sensors-btn').addEventListener('click', async () => {
   if (!('Notification' in window)) { alert('Este navegador no soporta notificaciones.'); return; }
-  const permiso = await Notification.requestPermission();
-  notificacionesActivas = permiso === 'granted';
-  $('#sensors-icon').style.fontVariationSettings = notificacionesActivas ? "'FILL' 1" : "'FILL' 0";
+  if (esIOS() && !appInstalada()) {
+    alert('En iPhone, agrega GatoGuard a la pantalla de inicio desde Safari y abre la app instalada para activar notificaciones.');
+    return;
+  }
+  try {
+    const permiso = Notification.permission === 'default'
+      ? await Notification.requestPermission()
+      : Notification.permission;
+    notificacionesActivas = permiso === 'granted';
+    $('#sensors-icon').style.fontVariationSettings = notificacionesActivas ? "'FILL' 1" : "'FILL' 0";
+    if (notificacionesActivas) {
+      const pushRegistrado = await sincronizarSuscripcionPush(true);
+      if (!pushRegistrado) throw new Error('Este navegador no ofrece Web Push. En iPhone, instala GatoGuard desde Safari.');
+      $('#sensors-btn').title = 'Notificaciones push activadas';
+    } else {
+      alert('El permiso está desactivado. Actívalo en la configuración de notificaciones del navegador.');
+    }
+  } catch (error) {
+    console.error('No se pudieron activar las notificaciones:', error);
+    alert(`El permiso quedó activo, pero no se pudo registrar el envío push: ${error.message}`);
+  }
 });
 
 let actualizando = false;
@@ -562,6 +627,7 @@ async function tick() {
 }
 $('#filtro-gato-home').addEventListener('change', () => {
   seleccionarGato(gatoSeleccionado());
+  sincronizarSuscripcionPush(false).catch(error => console.error('No se pudo actualizar el filtro de notificaciones:', error));
   tick();
 });
 async function iniciarHome() {
@@ -569,6 +635,9 @@ async function iniciarHome() {
     await cargarGatos();
   } catch (err) {
     console.error('Error /api/gatos', err);
+  }
+  if (notificacionesActivas) {
+    sincronizarSuscripcionPush(false).catch(error => console.error('No se pudo restaurar la suscripción push:', error));
   }
   tick();
 }

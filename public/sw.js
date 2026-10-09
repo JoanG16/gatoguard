@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gatoguard-shell-v4';
+const CACHE_NAME = 'gatoguard-shell-v5';
 const APP_SHELL = [
   '/',
   '/index.html',
@@ -30,6 +30,34 @@ self.addEventListener('activate', event => {
     ))
   );
   self.clients.claim();
+});
+
+self.addEventListener('push', event => {
+  if (!event.data) return;
+  const payload = event.data.json();
+  const url = new URL(payload.url || '/index.html', self.location.origin);
+  const destino = url.origin === self.location.origin ? `${url.pathname}${url.search}` : '/index.html';
+  event.waitUntil(self.registration.showNotification(payload.title || 'GatoGuard', {
+    body: payload.body || 'Hay una novedad en la rutina de tu gato.',
+    icon: '/icon-192.svg',
+    badge: '/icon-192.svg',
+    tag: payload.tag || 'gatoguard-alerta',
+    data: { url: destino },
+  }));
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const destino = new URL(event.notification.data?.url || '/index.html', self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientes => {
+      const existente = clientes.find(client => client.url.startsWith(self.location.origin));
+      if (existente) {
+        return existente.navigate(destino).then(client => (client || existente).focus());
+      }
+      return self.clients.openWindow(destino);
+    })
+  );
 });
 
 self.addEventListener('fetch', event => {
