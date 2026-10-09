@@ -339,7 +339,9 @@ async function actualizarEstado() {
     }
 
     const gatosConLectura = estados.filter(estado => estado.mac && estado.actualizado_en);
-    const actual = gatosConLectura.length ? gatosConLectura.reduce((masReciente, estado) => {
+    const gatosRecientes = gatosConLectura.filter(estado =>
+      (Date.now() - new Date(estado.actualizado_en).getTime()) / 1000 <= STALE_AFTER_S);
+    const actual = gatosRecientes.length ? gatosRecientes.reduce((masReciente, estado) => {
       if (!masReciente || new Date(estado.actualizado_en).getTime() > new Date(masReciente.actualizado_en).getTime()) return estado;
       return masReciente;
     }, null) : null;
@@ -392,6 +394,7 @@ function renderZonasGrid(estados) {
   const gatosPorZona = new Map();
   estados.forEach(estado => {
     if (!estado.nombre_zona || !estado.mac) return;
+    if (!estado.actualizado_en || (Date.now() - new Date(estado.actualizado_en).getTime()) / 1000 > STALE_AFTER_S) return;
     const mac = String(estado.mac).toUpperCase();
     if (gatoSeleccionado() !== 'all' && mac !== gatoSeleccionado().toUpperCase()) return;
     const gato = gatosActuales.find(item => item.mac.toUpperCase() === mac) || {
