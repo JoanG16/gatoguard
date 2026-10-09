@@ -110,7 +110,7 @@ void comprobarBotonReset() {
       botonPresionado = true;
       tiempoInicioPresion = millis();
     } else if (millis() - tiempoInicioPresion > 2000) { // Si se mantiene 2 segundos
-      Serial.println("\n[RESET] Botón presionado por 2s. Borrando Wi-Fi y reiniciando a Modo AP...");
+      Serial.println("\n[RESET] Botón presionado por 2s. Borrando solo Wi-Fi; se conserva el registro del gateway.");
 
       // Parpadeo rápido en rojo para confirmar el reset
       for (int i = 0; i < 5; i++) {
@@ -120,9 +120,10 @@ void comprobarBotonReset() {
         delay(100);
       }
 
-      // Limpiar credenciales de Wi-Fi en NVS
+      // El reset de red no debe borrar el token ni la identidad persistente del gateway.
       prefs.begin("gateway_cfg", false);
-      prefs.clear();
+      prefs.remove("wifi_ssid");
+      prefs.remove("wifi_pass");
       prefs.end();
 
       ESP.restart();
@@ -699,6 +700,18 @@ void setupHttpEndpoints() {
     prefs.putUInt("config_version", configVersion);
     prefs.putBool("gateway_deleted", false);
     prefs.end();
+
+    prefs.begin("gateway_cfg", true);
+    const String tokenPersistido = prefs.getString("provisioning_token", "");
+    prefs.end();
+    if (tokenPersistido != provisioningToken) {
+      provisioningToken = tokenPersistido;
+      registroConfirmado = false;
+      server.send(500, "application/json", "{\"ok\":false,\"error\":\"No se pudo verificar el token guardado en el M5Stack. Vuelve a guardar la configuración antes de reiniciarlo.\"}");
+      Serial.println("[CONFIG] ERROR: el token de registro no quedó guardado en NVS.");
+      return;
+    }
+    Serial.println("[CONFIG] Token de registro verificado en NVS; se conservará al reiniciar.");
 
     server.send(200, "application/json", "{\"ok\":true,\"device_id\":\"" + escaparJson(deviceID) + "\",\"nombre_zona\":\"" + escaparJson(nombreZona) + "\"}");
     registroConfirmado = false;
