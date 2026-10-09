@@ -36,10 +36,12 @@ bool pausarReintentosWifi = false;
 unsigned long ultimoIntentoWiFi = 0;
 unsigned long ultimoIntentoMQTT = 0;
 unsigned long ultimaPublicacionRegistro = 0;
+unsigned long ultimaPublicacionHeartbeat = 0;
 const unsigned long REINTENTO_WIFI_MS = 15000;
 const unsigned long TIMEOUT_CONEXION_WIFI_MS = 30000;
 const unsigned long REINTENTO_MQTT_MS = 5000;
 const unsigned long REINTENTO_REGISTRO_MS = 60000;
+const unsigned long INTERVALO_HEARTBEAT_MS = 10000;
 
 struct LecturaBeacon {
   String mac;
@@ -345,6 +347,20 @@ void publicarRegistroGateway() {
   } else {
     ultimaPublicacionRegistro = millis();
     Serial.println("[MQTT] No se pudo publicar el registro pendiente.");
+  }
+}
+
+void publicarHeartbeatGateway() {
+  if (!mqttClient.connected() || !registroConfirmado || provisioningToken.length() == 0 || gatewayEliminado) return;
+
+  const String topic = "telemetria/" + clienteID + "/" + deviceID + "/gateway/heartbeat";
+  const String payload = "{\"cliente_id\":\"" + escaparJson(clienteID) +
+                        "\",\"device_id\":\"" + escaparJson(deviceID) +
+                        "\",\"provisioning_token\":\"" + escaparJson(provisioningToken) + "\"}";
+  if (!mqttClient.publish(topic.c_str(), payload.c_str())) {
+    Serial.println("[MQTT] No se pudo publicar el heartbeat del gateway.");
+  } else {
+    Serial.println("[MQTT] Heartbeat del gateway enviado.");
   }
 }
 
@@ -812,6 +828,12 @@ void loop() {
   if (gatewayEliminado || !registroConfirmado) {
     delay(100);
     return;
+  }
+
+  if (ultimaPublicacionHeartbeat == 0 ||
+      millis() - ultimaPublicacionHeartbeat >= INTERVALO_HEARTBEAT_MS) {
+    ultimaPublicacionHeartbeat = millis();
+    publicarHeartbeatGateway();
   }
 
   if (!listaBeaconsRecibida) {

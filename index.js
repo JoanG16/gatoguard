@@ -12,6 +12,7 @@ const client = mqtt.connect(mqttUrl);
 // Comodines: captura cualquier cliente_id y cualquier device_id, sin hardcodear nombres.
 const TOPIC_PATTERN = 'telemetria/+/+/beacon';
 const GATEWAY_REGISTER_PATTERN = 'telemetria/+/+/gateway/register';
+const GATEWAY_HEARTBEAT_PATTERN = 'telemetria/+/+/gateway/heartbeat';
 let rechazadasAcumuladas = 0;
 let aceptadasAcumuladas = 0;
 let proximoLogResumen = Date.now() + 30000;
@@ -23,9 +24,9 @@ client.on('connect', async () => {
     await pool.query(
       'ALTER TABLE telemetria_raw ADD COLUMN IF NOT EXISTS sample_count INTEGER NOT NULL DEFAULT 1'
     );
-    client.subscribe([TOPIC_PATTERN, GATEWAY_REGISTER_PATTERN], (err) => {
+    client.subscribe([TOPIC_PATTERN, GATEWAY_REGISTER_PATTERN, GATEWAY_HEARTBEAT_PATTERN], (err) => {
       if (err) console.error('[MQTT] Error al suscribirse:', err.message);
-      else console.log(`[MQTT] Suscrito a "${TOPIC_PATTERN}" y "${GATEWAY_REGISTER_PATTERN}"`);
+      else console.log(`[MQTT] Suscrito a "${TOPIC_PATTERN}", "${GATEWAY_REGISTER_PATTERN}" y "${GATEWAY_HEARTBEAT_PATTERN}"`);
     });
   } catch (err) {
     console.error('[MQTT] No se pudo preparar el registro de gateways:', err.message);
@@ -37,6 +38,55 @@ client.on('error', (err) => console.error('[MQTT] Error de conexión:', err.mess
 
 client.on('message', async (topic, payloadBuffer) => {
   const topicParts = topic.split('/');
+  if (
+    topicParts.length === 5
+    && topicParts[0] === 'telemetria'
+    && topicParts[3] === 'gateway'
+    && topicParts[4] === 'heartbeat'
+  ) {
+    const [, topicClientId, topicDeviceId] = topicParts;
+    let heartbeat;
+    try {
+      heartbeat = JSON.parse(payloadBuffer.toString());
+    } catch (err) {
+      console.warn(`[WARN] Heartbeat MQTT no es JSON válido en "${topic}".`);
+      return;
+    }
+    if (
+      !heartbeat
+      || typeof heartbeat !== 'object'
+      || Array.isArray(heartbeat)
+      || heartbeat.cliente_id !== topicClientId
+      || heartbeat.device_id !== topicDeviceId
+      || typeof heartbeat.provisioning_token !== 'string'
+      || !heartbeat.provisioning_token
+    ) {
+      console.warn(`[WARN] Heartbeat MQTT inválido en "${topic}".`);
+      return;
+    }
+
+    try {
+      const { rowCount } = await pool.query(
+        `UPDATE gateways g
+         SET online = true, ultimo_heartbeat = now()
+         FROM gateway_registry r
+         WHERE g.cliente_id = $1
+           AND g.device_id = $2
+           AND r.cliente_id = g.cliente_id
+           AND r.device_id = g.device_id
+           AND r.deleted = false
+           AND r.provisioning_token = $3`,
+        [topicClientId, topicDeviceId, heartbeat.provisioning_token]
+      );
+      if (!rowCount) {
+        console.warn(`[WARN] Heartbeat ignorado para ${topicDeviceId}: gateway no registrado o token inválido.`);
+      }
+    } catch (err) {
+      console.error(`[ERROR] No se pudo registrar heartbeat de ${topicDeviceId}:`, err.message);
+    }
+    return;
+  }
+
   if (
     topicParts.length === 5
     && topicParts[0] === 'telemetria'

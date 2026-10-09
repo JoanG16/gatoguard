@@ -20,6 +20,7 @@ const mqttClient = mqtt.connect(process.env.MQTT_URL || 'mqtt://broker.hivemq.co
 mqttClient.on('error', err => console.error('[MQTT] Error en canal de configuración:', err.message));
 const app = express();
 const PORT_CANDIDATES = Array.from(new Set([Number(process.env.PORT || process.env.DASHBOARD_PORT || 3000), 3001, 3002, 3003, 3010]));
+const GATEWAY_ONLINE_WINDOW_SECONDS = 35;
 app.use(express.json());
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
@@ -737,13 +738,15 @@ app.patch('/api/anomalias/:id', async (req, res) => {
 
 app.get('/api/gateways', async (req, res) => {
   try {
-    // La disponibilidad pertenece a cada gateway: cualquier lectura MQTT reciente
-    // cuenta, aunque otro gateway tenga el RSSI más fuerte y sea la zona elegida.
-    const ONLINE_WINDOW_SECONDS = 15;
+    // Heartbeats detectan gateways aunque no haya un beacon cerca; lecturas viejas
+    // siguen siendo respaldo para los gateways que aún usan firmware anterior.
     const { rows } = await pool.query(
       `SELECT g.*,
-              (t.ultimo_dato IS NOT NULL AND t.ultimo_dato > now() - ($1 || ' seconds')::interval) AS online,
-              t.ultimo_dato AS ultimo_heartbeat,
+              (
+                COALESCE(g.ultimo_heartbeat > now() - ($1 || ' seconds')::interval, false)
+                OR COALESCE(t.ultimo_dato > now() - ($1 || ' seconds')::interval, false)
+              ) AS online,
+              GREATEST(g.ultimo_heartbeat, t.ultimo_dato) AS ultimo_heartbeat,
               r.provisioning_token,
               r.config_version
        FROM gateways g
@@ -754,7 +757,7 @@ app.get('/api/gateways', async (req, res) => {
          GROUP BY device_id
        ) t ON t.device_id = g.device_id
        ORDER BY g.updated_at DESC NULLS LAST`,
-      [ONLINE_WINDOW_SECONDS]
+      [GATEWAY_ONLINE_WINDOW_SECONDS]
     );
     res.json(rows.map(gateway => ({
       ...gateway,
@@ -893,15 +896,19 @@ app.get('/api/cuenta', async (req, res) => {
       pool.query(
         `SELECT g.id, g.cliente_id, g.device_id, g.nombre, g.nombre_zona, g.icono,
                 g.created_at, g.updated_at,
-                (t.ultimo_dato IS NOT NULL AND t.ultimo_dato > now() - interval '15 seconds') AS online,
-                t.ultimo_dato AS ultimo_heartbeat
+                (
+                  COALESCE(g.ultimo_heartbeat > now() - ($1 || ' seconds')::interval, false)
+                  OR COALESCE(t.ultimo_dato > now() - ($1 || ' seconds')::interval, false)
+                ) AS online,
+                GREATEST(g.ultimo_heartbeat, t.ultimo_dato) AS ultimo_heartbeat
          FROM gateways g
          LEFT JOIN (
            SELECT device_id, MAX(time) AS ultimo_dato
            FROM telemetria_raw
            GROUP BY device_id
          ) t ON t.device_id = g.device_id
-         ORDER BY g.nombre NULLS LAST, g.device_id`
+         ORDER BY g.nombre NULLS LAST, g.device_id`,
+        [GATEWAY_ONLINE_WINDOW_SECONDS]
       ),
       pool.query(
         `SELECT DISTINCT ON (UPPER(TRIM(mac)))
