@@ -16,6 +16,8 @@ const char *AP_SSID = "GatoGateway-Setup";
 const char *AP_PASS = "gatoguard";
 const char *MQTT_BROKER = "broker.hivemq.com";
 const int MQTT_PORT = 1883;
+const char *PREFS_PROVISIONING_TOKEN = "prov_token";
+const char *PREFS_ALLOWLIST_RECEIVED = "allowlist_ok";
 
 
 String clienteID = "demo_cliente";
@@ -280,7 +282,7 @@ String serializarListaBeacons() {
 void guardarListaBeacons() {
   prefs.begin("gateway_cfg", false);
   prefs.putString("allowed_macs", serializarListaBeacons());
-  prefs.putBool("allowlist_received", true);
+  prefs.putBool(PREFS_ALLOWLIST_RECEIVED, true);
   prefs.end();
 }
 
@@ -696,13 +698,13 @@ void setupHttpEndpoints() {
     prefs.putString("cliente_id", clienteID);
     prefs.putString("device_id", deviceID);
     prefs.putString("nombre_zona", nombreZona);
-    prefs.putString("provisioning_token", provisioningToken);
+    prefs.putString(PREFS_PROVISIONING_TOKEN, provisioningToken);
     prefs.putUInt("config_version", configVersion);
     prefs.putBool("gateway_deleted", false);
     prefs.end();
 
     prefs.begin("gateway_cfg", true);
-    const String tokenPersistido = prefs.getString("provisioning_token", "");
+    const String tokenPersistido = prefs.getString(PREFS_PROVISIONING_TOKEN, "");
     prefs.end();
     if (tokenPersistido != provisioningToken) {
       provisioningToken = tokenPersistido;
@@ -753,10 +755,10 @@ void setup() {
   clienteID = prefs.getString("cliente_id", clienteID);
   deviceID = obtenerDeviceIdFisico();
   nombreZona = prefs.getString("nombre_zona", "");
-  provisioningToken = prefs.getString("provisioning_token", "");
+  provisioningToken = prefs.getString(PREFS_PROVISIONING_TOKEN, "");
   configVersion = prefs.getUInt("config_version", 0);
   gatewayEliminado = prefs.getBool("gateway_deleted", false);
-  const bool listaGuardada = prefs.getBool("allowlist_received", false);
+  const bool listaGuardada = prefs.getBool(PREFS_ALLOWLIST_RECEIVED, false);
   const String listaSerializada = prefs.getString("allowed_macs", "");
   prefs.end();
   listaBeaconsRecibida = listaGuardada && restaurarListaBeacons(listaSerializada);
