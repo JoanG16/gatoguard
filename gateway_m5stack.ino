@@ -370,7 +370,7 @@ void publicarRegistroGateway() {
 }
 
 void publicarHeartbeatGateway() {
-  if (!mqttClient.connected() || !registroConfirmado || provisioningToken.length() == 0 || gatewayEliminado) return;
+  if (!mqttClient.connected() || provisioningToken.length() == 0 || gatewayEliminado) return;
 
   const String topic = "telemetria/" + clienteID + "/" + deviceID + "/gateway/heartbeat";
   const String payload = "{\"cliente_id\":\"" + escaparJson(clienteID) +
@@ -775,9 +775,26 @@ void setup() {
   provisioningToken = prefs.getString(PREFS_PROVISIONING_TOKEN, "");
   configVersion = prefs.getUInt("config_version", 0);
   gatewayEliminado = prefs.getBool("gateway_deleted", false);
+  const String idGuardado = prefs.getString("device_id", "");
   const bool listaGuardada = prefs.getBool(PREFS_ALLOWLIST_RECEIVED, false);
   const String listaSerializada = prefs.getString("allowed_macs", "");
   prefs.end();
+
+  // Si cambió el ID del equipo, la zona y el token guardados pertenecen al ID anterior: se descartan para registrarlo limpio.
+  const bool idCambio = (idGuardado.length() > 0 && idGuardado != deviceID)
+    || (idGuardado.length() == 0 && provisioningToken.startsWith("AUTO-") && provisioningToken != "AUTO-" + deviceID);
+  if (idCambio) {
+    Serial.printf("[CONFIG] El ID cambió de '%s' a '%s'; se reinicia el registro guardado.\n", idGuardado.c_str(), deviceID.c_str());
+    nombreZona = "";
+    provisioningToken = "";
+    configVersion = 0;
+    gatewayEliminado = false;
+    prefs.begin("gateway_cfg", false);
+    prefs.remove("allowed_macs");
+    prefs.putBool(PREFS_ALLOWLIST_RECEIVED, false);
+    prefs.end();
+  }
+  const bool listaVigente = listaGuardada && !idCambio;
 
   // Primer arranque sin configuración: se auto-registra con un nombre único; luego se renombra desde el sistema.
   if (nombreZona.length() == 0 || provisioningToken.length() == 0) {
@@ -787,13 +804,18 @@ void setup() {
     gatewayEliminado = false;
     prefs.begin("gateway_cfg", false);
     prefs.putString("cliente_id", clienteID);
+    prefs.putString("device_id", deviceID);
     prefs.putString("nombre_zona", nombreZona);
     prefs.putString(PREFS_PROVISIONING_TOKEN, provisioningToken);
     prefs.putUInt("config_version", configVersion);
     prefs.putBool("gateway_deleted", false);
     prefs.end();
+  } else if (idGuardado.length() == 0) {
+    prefs.begin("gateway_cfg", false);
+    prefs.putString("device_id", deviceID);
+    prefs.end();
   }
-  listaBeaconsRecibida = listaGuardada && restaurarListaBeacons(listaSerializada);
+  listaBeaconsRecibida = listaVigente && restaurarListaBeacons(listaSerializada);
   if (!listaBeaconsRecibida) beaconsPermitidos.clear();
   Serial.printf(
     "[CONFIG] Gateway %s; zona %s; token %s.\n",
@@ -869,15 +891,21 @@ void loop() {
     publicarRegistroGateway();
   }
 
-  if (gatewayEliminado || !registroConfirmado) {
+  if (gatewayEliminado) {
     delay(100);
     return;
   }
 
+  // El heartbeat no espera el ack: tras reiniciar, el servidor ya lo ve en línea.
   if (ultimaPublicacionHeartbeat == 0 ||
       millis() - ultimaPublicacionHeartbeat >= INTERVALO_HEARTBEAT_MS) {
     ultimaPublicacionHeartbeat = millis();
     publicarHeartbeatGateway();
+  }
+
+  if (!registroConfirmado) {
+    delay(100);
+    return;
   }
 
   if (!listaBeaconsRecibida) {

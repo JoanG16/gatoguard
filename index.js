@@ -115,6 +115,10 @@ client.on('message', async (topic, payloadBuffer) => {
         throw new Error('El identificador del mensaje no coincide con el topic MQTT.');
       }
       const result = await registerGateway(pool, registration);
+      await pool.query(
+        'UPDATE gateways SET online = true, ultimo_heartbeat = now() WHERE device_id = $1',
+        [topicDeviceId]
+      );
       client.publish(ackTopic, JSON.stringify(result), { qos: 1, retain: false }, err => {
         if (err) console.error('[MQTT] No se pudo confirmar el registro del gateway:', err.message);
       });
