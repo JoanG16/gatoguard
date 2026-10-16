@@ -11,6 +11,13 @@
 #include <ctype.h>
 #include <stdio.h>
 
+// Credenciales de la red de la casa: edítalas antes de cargar el sketch en cada M5Stack.
+#define DEFAULT_WIFI_SSID "NOMBRE_DE_TU_WIFI"
+#define DEFAULT_WIFI_PASS "CLAVE_DE_TU_WIFI"
+#define DEFAULT_CLIENTE_ID "demo_cliente"
+// ID único de este M5Stack (cámbialo en cada equipo: M5_01, M5_02, ...). Aparece en el sistema para identificarlo.
+// Déjalo vacío ("") para usar el ID automático basado en la MAC del chip.
+#define DEFAULT_DEVICE_ID "M5_01"
 
 const char *AP_SSID = "GatoGateway-Setup";
 const char *AP_PASS = "gatoguard";
@@ -19,8 +26,7 @@ const int MQTT_PORT = 1883;
 const char *PREFS_PROVISIONING_TOKEN = "prov_token";
 const char *PREFS_ALLOWLIST_RECEIVED = "allowlist_ok";
 
-
-String clienteID = "demo_cliente";
+String clienteID = DEFAULT_CLIENTE_ID;
 String deviceID;
 String nombreZona = "";
 String provisioningToken = "";
@@ -305,11 +311,21 @@ void guardarConfiguracionGateway() {
   prefs.end();
 }
 
-void reconectarWifiGuardado() {
+// Usa la red guardada por la app si existe; si no, la red grabada en el firmware.
+void obtenerCredencialesWifi(String &ssid, String &pass) {
   prefs.begin("gateway_cfg", true);
-  String savedSsid = prefs.getString("wifi_ssid", "");
-  String savedPass = prefs.getString("wifi_pass", "");
+  ssid = prefs.getString("wifi_ssid", "");
+  pass = prefs.getString("wifi_pass", "");
   prefs.end();
+  if (ssid.length() == 0) {
+    ssid = DEFAULT_WIFI_SSID;
+    pass = DEFAULT_WIFI_PASS;
+  }
+}
+
+void reconectarWifiGuardado() {
+  String savedSsid, savedPass;
+  obtenerCredencialesWifi(savedSsid, savedPass);
   if (savedSsid.length() == 0) return;
 
   WiFi.begin(savedSsid.c_str(), savedPass.c_str());
@@ -398,6 +414,7 @@ void finalizarEscaneoRedes() {
 }
 
 String obtenerDeviceIdFisico() {
+  if (strlen(DEFAULT_DEVICE_ID) > 0) return String(DEFAULT_DEVICE_ID);
   const uint64_t chipMac = ESP.getEfuseMac() & 0xFFFFFFFFFFFFULL;
   char id[16];
   snprintf(id, sizeof(id), "GW-%012llX", static_cast<unsigned long long>(chipMac));
@@ -749,9 +766,9 @@ void setup() {
   FastLED.setBrightness(40);
   fijarColorLed(COLOR_MODO_AP);
 
+  String savedSsid, savedPass;
+  obtenerCredencialesWifi(savedSsid, savedPass);
   prefs.begin("gateway_cfg", true);
-  String savedSsid = prefs.getString("wifi_ssid", "");
-  String savedPass = prefs.getString("wifi_pass", "");
   clienteID = prefs.getString("cliente_id", clienteID);
   deviceID = obtenerDeviceIdFisico();
   nombreZona = prefs.getString("nombre_zona", "");
@@ -761,6 +778,21 @@ void setup() {
   const bool listaGuardada = prefs.getBool(PREFS_ALLOWLIST_RECEIVED, false);
   const String listaSerializada = prefs.getString("allowed_macs", "");
   prefs.end();
+
+  // Primer arranque sin configuración: se auto-registra con un nombre único; luego se renombra desde el sistema.
+  if (nombreZona.length() == 0 || provisioningToken.length() == 0) {
+    if (nombreZona.length() == 0) nombreZona = deviceID;
+    if (provisioningToken.length() == 0) provisioningToken = "AUTO-" + deviceID;
+    configVersion = 0;
+    gatewayEliminado = false;
+    prefs.begin("gateway_cfg", false);
+    prefs.putString("cliente_id", clienteID);
+    prefs.putString("nombre_zona", nombreZona);
+    prefs.putString(PREFS_PROVISIONING_TOKEN, provisioningToken);
+    prefs.putUInt("config_version", configVersion);
+    prefs.putBool("gateway_deleted", false);
+    prefs.end();
+  }
   listaBeaconsRecibida = listaGuardada && restaurarListaBeacons(listaSerializada);
   if (!listaBeaconsRecibida) beaconsPermitidos.clear();
   Serial.printf(
@@ -772,8 +804,7 @@ void setup() {
 
   WiFi.persistent(false);
   WiFi.setAutoReconnect(true);
-  WiFi.mode(WIFI_AP_STA);
-  iniciarModoAP();
+  WiFi.mode(WIFI_STA);
 
   if (savedSsid.length() > 0) {
     Serial.print("[WiFi] Intentando conectar a: ");
@@ -811,11 +842,9 @@ void loop() {
     }
     if (!pausarReintentosWifi && estadoWiFi != WL_IDLE_STATUS &&
         millis() - ultimoIntentoWiFi >= REINTENTO_WIFI_MS &&
-        WiFi.getMode() == WIFI_AP_STA) {
-      prefs.begin("gateway_cfg", true);
-      String savedSsid = prefs.getString("wifi_ssid", "");
-      String savedPass = prefs.getString("wifi_pass", "");
-      prefs.end();
+        WiFi.getMode() == WIFI_STA) {
+      String savedSsid, savedPass;
+      obtenerCredencialesWifi(savedSsid, savedPass);
       if (savedSsid.length() > 0) {
         Serial.printf("[WiFi] Estado %d; reintentando conexión a la red guardada.\n", static_cast<int>(estadoWiFi));
         ultimoIntentoWiFi = millis();

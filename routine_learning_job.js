@@ -4,13 +4,11 @@
 require('dotenv').config();
 const { Pool } = require('pg');
 const { ensureRoutineDetailSchema } = require('./routine_schema');
+const { DAY_MS, FINAL_DAYS, evaluatePhase } = require('./routine_phases');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const SLOT_MINUTES = 30;
 const DETAIL_SLOT_MINUTES = 5;
-const ROUTINE_LEARNING_DAYS = 7;
-const ROUTINE_CONFIRMATION_DAYS = 7;
-const DAY_MS = 24 * 60 * 60 * 1000;
 const TIME_ZONE = process.env.TIME_ZONE || 'America/Bogota';
 const args = process.argv.slice(2);
 const requestedMacArg = args.find(argument => !argument.startsWith('--'));
@@ -72,13 +70,13 @@ function splitSegment(start, end, slotMinutes) {
   return parts;
 }
 
-function routineWindows(start) {
+function routineWindows(start, windowDays) {
   const learningStart = new Date(start);
-  const learningEnd = new Date(learningStart.getTime() + ROUTINE_LEARNING_DAYS * DAY_MS);
+  const learningEnd = new Date(learningStart.getTime() + windowDays * DAY_MS);
   return {
     learningStart,
     learningEnd,
-    confirmationEnd: new Date(learningEnd.getTime() + ROUTINE_CONFIRMATION_DAYS * DAY_MS),
+    confirmationEnd: new Date(learningStart.getTime() + FINAL_DAYS * DAY_MS),
   };
 }
 
@@ -169,9 +167,16 @@ async function processCat(mac, until) {
     return;
   }
 
-  const { learningStart, learningEnd, confirmationEnd } = routineWindows(firstEvent[0].inicio);
-  const observedUntil = new Date(Math.min(until.getTime(), confirmationEnd.getTime()));
-  const events = await readEvents(mac, observedUntil);
+  const inicio = new Date(firstEvent[0].inicio);
+  const observedUntil = new Date(Math.min(until.getTime(), inicio.getTime() + FINAL_DAYS * DAY_MS));
+  const events = (await readEvents(mac, observedUntil)).map(row => ({ zone: row.zone, at: new Date(row.at) }));
+  const { fase, windowDays, evaluacion } = evaluatePhase(
+    events,
+    inicio,
+    until,
+    date => slotFor(date, DETAIL_SLOT_MINUTES)
+  );
+  const { learningStart, learningEnd, confirmationEnd } = routineWindows(inicio, windowDays);
   const routine = new Map();
   const details = new Map();
 
@@ -215,19 +220,22 @@ async function processCat(mac, until) {
     recordLearningDuration(routine, current.zone, learningSegmentStart, learningSegmentEnd);
   }
 
-  const learningComplete = until >= learningEnd;
+  const learningComplete = fase !== 'aprendiendo';
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query(
-      `INSERT INTO rutina_estado (mac, inicio_aprendizaje, fin_aprendizaje, fin_reconfirmacion, actualizado_en)
-       VALUES ($1, $2, $3, $4, now())
+      `INSERT INTO rutina_estado
+         (mac, inicio_aprendizaje, fin_aprendizaje, fin_reconfirmacion, fase, evaluacion, actualizado_en)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, now())
        ON CONFLICT (mac) DO UPDATE SET
          inicio_aprendizaje = EXCLUDED.inicio_aprendizaje,
          fin_aprendizaje = EXCLUDED.fin_aprendizaje,
          fin_reconfirmacion = EXCLUDED.fin_reconfirmacion,
+         fase = EXCLUDED.fase,
+         evaluacion = EXCLUDED.evaluacion,
          actualizado_en = now()`,
-      [mac, learningStart, learningEnd, confirmationEnd]
+      [mac, learningStart, learningEnd, confirmationEnd, fase, JSON.stringify(evaluacion)]
     );
     await client.query(
       `DELETE FROM rutinas_patron
@@ -271,7 +279,7 @@ async function processCat(mac, until) {
       );
     }
     await client.query('COMMIT');
-    console.log(`[RUTINA] MAC ${mac}: ${events.length} eventos, ${routine.size} franjas de 30 min, ${details.size} franjas de 5 min; ${learningComplete ? 'aprendizaje completo' : 'aprendizaje en curso'}.`);
+    console.log(`[RUTINA] MAC ${mac}: ${events.length} eventos, ${routine.size} franjas de 30 min, ${details.size} franjas de 5 min; fase ${fase}.`);
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

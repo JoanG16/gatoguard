@@ -13,7 +13,7 @@ const ROUTINE_CONFIRM_POLLS = Number(process.env.ROUTINE_CONFIRM_POLLS || 3);
 const MIN_ROUTINE_DWELL_MINUTES = Number(process.env.MIN_ROUTINE_DWELL_MINUTES || 60);
 const MIN_ROUTINE_ALERT_DAYS = 2;
 const ZONE_WINDOW_SECONDS = Number(process.env.ZONE_WINDOW_SECONDS || 3);
-const MIN_RSSI_DBM = Number(process.env.MIN_RSSI_DBM || -65);
+const MIN_RSSI_DBM = Number(process.env.MIN_RSSI_DBM || -55);
 const TREE_COUNT = 50;
 const SAMPLE_SIZE = 128;
 const TIME_ZONE = process.env.TIME_ZONE || 'America/Bogota';
@@ -197,10 +197,10 @@ async function detectarVisitaOmitida(mac, nombreMascota) {
      FROM rutina_detalle r
      JOIN rutina_estado e ON UPPER(TRIM(e.mac)) = UPPER(TRIM(r.mac))
      WHERE UPPER(TRIM(r.mac)) = UPPER(TRIM($1))
-       AND now() >= e.inicio_aprendizaje + interval '2 days'
-       AND r.franja_5min < $2
-       AND r.dias_aprendizaje >= $3
-       AND r.visitas_aprendizaje >= $3
+       AND e.fase IN ('pre_rutina', 'validada_7', 'confirmada', 'evaluada_14')
+       AND r.franja_5min < $2 - 2
+       AND r.dias_aprendizaje >= GREATEST($3, CEIL(0.3 * ROUND(EXTRACT(EPOCH FROM (e.fin_aprendizaje - e.inicio_aprendizaje)) / 86400)))
+       AND r.visitas_aprendizaje >= GREATEST($3, CEIL(0.3 * ROUND(EXTRACT(EPOCH FROM (e.fin_aprendizaje - e.inicio_aprendizaje)) / 86400)))
        AND NOT EXISTS (
          SELECT 1
          FROM (
@@ -212,8 +212,8 @@ async function detectarVisitaOmitida(mac, nombreMascota) {
            WHERE UPPER(TRIM(h.mac)) = UPPER(TRIM(r.mac))
          ) h
          WHERE h.nombre_zona = r.nombre_zona
-           AND h.cambiado_en < (($4::date + (r.franja_5min + 1) * interval '5 minutes') AT TIME ZONE $5)
-           AND COALESCE(h.siguiente, now()) > (($4::date + r.franja_5min * interval '5 minutes') AT TIME ZONE $5)
+           AND h.cambiado_en < (($4::date + (r.franja_5min + 3) * interval '5 minutes') AT TIME ZONE $5)
+           AND COALESCE(h.siguiente, now()) > (($4::date + (r.franja_5min - 2) * interval '5 minutes') AT TIME ZONE $5)
        )
      ORDER BY r.franja_5min, r.dias_aprendizaje DESC, r.visitas_aprendizaje DESC
      LIMIT 1`,
@@ -375,12 +375,14 @@ async function detectarMac(mac) {
     : (Number(lecturaSospechosa.rssi) - promedio) / desviacion;
   const slot = franjaActual(new Date());
   const patron = await pool.query(
-    `SELECT nombre_zona
-     FROM rutinas_patron
-     WHERE UPPER(TRIM(mac)) = UPPER(TRIM($1))
-       AND dia_tipo = 'todos'
-       AND franja_horaria = $2
-     ORDER BY tiempo_total_min DESC, frecuencia_visitas DESC, nombre_zona
+    `SELECT p.nombre_zona
+     FROM rutinas_patron p
+     JOIN rutina_estado e ON UPPER(TRIM(e.mac)) = UPPER(TRIM(p.mac))
+     WHERE UPPER(TRIM(p.mac)) = UPPER(TRIM($1))
+       AND e.fase IN ('pre_rutina', 'validada_7', 'confirmada', 'evaluada_14')
+       AND p.dia_tipo = 'todos'
+       AND p.franja_horaria = $2
+     ORDER BY p.tiempo_total_min DESC, p.frecuencia_visitas DESC, p.nombre_zona
      LIMIT 1`,
     [mac, slot]
   );

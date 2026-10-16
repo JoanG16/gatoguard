@@ -79,30 +79,34 @@ async function removePushSubscription(pool, subscription) {
 }
 
 async function sendPushToSubscribers(pool, { mac, tipo, title, body, url, tag }) {
-  const { rows: configuracion } = await pool.query(
-    `SELECT avisos_alertas, avisos_sin_lecturas
-     FROM gato_config
-     WHERE UPPER(mac) = UPPER($1)
-     LIMIT 1`,
-    [mac]
-  );
-  const avisosPermitidos = tipo === 'sin_senal'
-    ? configuracion[0]?.avisos_sin_lecturas !== false
-    : configuracion[0]?.avisos_alertas !== false;
-  if (!avisosPermitidos) return;
+  if (mac) {
+    const { rows: configuracion } = await pool.query(
+      `SELECT avisos_alertas, avisos_sin_lecturas
+       FROM gato_config
+       WHERE UPPER(mac) = UPPER($1)
+       LIMIT 1`,
+      [mac]
+    );
+    const avisosPermitidos = tipo === 'sin_senal'
+      ? configuracion[0]?.avisos_sin_lecturas !== false
+      : configuracion[0]?.avisos_alertas !== false;
+    if (!avisosPermitidos) return 0;
+  }
 
   const { rows: subscriptions } = await pool.query(
-    `SELECT endpoint, subscription
-     FROM push_subscriptions
-     WHERE mac IS NULL OR UPPER(mac) = UPPER($1)`,
-    [mac]
+    mac
+      ? `SELECT endpoint, subscription
+         FROM push_subscriptions
+         WHERE mac IS NULL OR UPPER(mac) = UPPER($1)`
+      : 'SELECT endpoint, subscription FROM push_subscriptions',
+    mac ? [mac] : []
   );
-  if (!subscriptions.length) return;
+  if (!subscriptions.length) return 0;
 
   const configuration = vapidConfiguration();
   if (!configuration) {
     console.error('[PUSH] Hay suscripciones, pero faltan VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY o VAPID_SUBJECT.');
-    return;
+    return 0;
   }
 
   webpush.setVapidDetails(
@@ -112,18 +116,22 @@ async function sendPushToSubscribers(pool, { mac, tipo, title, body, url, tag })
   );
   const payload = JSON.stringify({ title, body, url, tag });
 
-  await Promise.all(subscriptions.map(async ({ endpoint, subscription }) => {
+  // TTL de 24 h: si el teléfono está apagado o sin red, el aviso llega cuando se reconecte.
+  const results = await Promise.all(subscriptions.map(async ({ endpoint, subscription }) => {
     try {
-      await webpush.sendNotification(subscription, payload, { TTL: 300, urgency: 'high' });
+      await webpush.sendNotification(subscription, payload, { TTL: 86400, urgency: 'high' });
+      return 1;
     } catch (error) {
       const statusCode = Number(error.statusCode);
       if (statusCode === 404 || statusCode === 410) {
         await pool.query('DELETE FROM push_subscriptions WHERE endpoint = $1', [endpoint]);
-        return;
+        return 0;
       }
       console.error(`[PUSH] No se pudo enviar notificación (${statusCode || 'error'}):`, error.message);
+      return 0;
     }
   }));
+  return results.reduce((total, value) => total + value, 0);
 }
 
 module.exports = {

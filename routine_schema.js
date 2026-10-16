@@ -27,6 +27,8 @@ async function ensureRoutineDetailSchema(pool) {
       actualizado_en TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+  await pool.query("ALTER TABLE rutina_estado ADD COLUMN IF NOT EXISTS fase TEXT NOT NULL DEFAULT 'aprendiendo'");
+  await pool.query('ALTER TABLE rutina_estado ADD COLUMN IF NOT EXISTS evaluacion JSONB');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_rutina_detalle_mac_slot ON rutina_detalle (UPPER(TRIM(mac)), franja_5min)');
 }
 

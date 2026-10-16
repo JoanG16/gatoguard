@@ -16,7 +16,7 @@ services:
       - key: TARGET_MAC
         sync: false
       - key: MIN_RSSI_DBM
-        value: "-65"
+        value: "-55"
       - key: ROUTINE_CONFIRM_POLLS
         value: "3"
       - key: VAPID_PUBLIC_KEY

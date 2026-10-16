@@ -19,6 +19,7 @@ const {
   PushSubscriptionValidationError,
   savePushSubscription,
   removePushSubscription,
+  sendPushToSubscribers,
 } = require('./push_notifications');
 const { ensureRoutineDetailSchema } = require('./routine_schema');
 
@@ -56,6 +57,27 @@ app.post('/api/push/subscribe', async (req, res) => {
     if (err instanceof PushSubscriptionValidationError) return res.status(400).json({ error: err.message });
     console.error('[PUSH] No se pudo guardar la suscripción:', err.message);
     res.status(500).json({ error: 'No se pudo guardar la suscripción push.' });
+  }
+});
+
+let ultimaPruebaPush = 0;
+app.post('/api/push/test', async (req, res) => {
+  if (Date.now() - ultimaPruebaPush < 15000) {
+    return res.status(429).json({ error: 'Espera unos segundos antes de enviar otra prueba.' });
+  }
+  ultimaPruebaPush = Date.now();
+  try {
+    const enviadas = await sendPushToSubscribers(pool, {
+      tipo: 'prueba',
+      title: 'Prueba de GatoGuard',
+      body: 'Si ves esto, las alertas llegan aunque el navegador esté cerrado.',
+      url: '/alertas.html',
+      tag: `prueba-${Date.now()}`,
+    });
+    res.json({ ok: true, enviadas });
+  } catch (err) {
+    console.error('[PUSH] Error en la prueba:', err.message);
+    res.status(500).json({ error: 'No se pudo enviar la notificación de prueba.' });
   }
 });
 
@@ -1175,7 +1197,7 @@ app.get('/api/rutina', async (req, res) => {
              FROM rutina_estado re
              JOIN beacons b ON b.asignado = true AND UPPER(TRIM(b.mac)) = UPPER(TRIM(re.mac))
              WHERE UPPER(TRIM(re.mac)) = UPPER(TRIM(rutinas_patron.mac))
-               AND re.fin_aprendizaje <= now()
+               AND re.fase IN ('pre_rutina', 'validada_7', 'confirmada', 'evaluada_14')
            )
        ),
        seleccionados AS (
@@ -1217,24 +1239,15 @@ app.get('/api/rutina-estado', async (req, res) => {
               re.inicio_aprendizaje,
               re.fin_aprendizaje,
               re.fin_reconfirmacion,
+              COALESCE(re.fase, 'aprendiendo') AS fase,
+              re.evaluacion,
               CASE WHEN re.inicio_aprendizaje IS NULL THEN 0
                    ELSE GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - re.inicio_aprendizaje)) / 86400))::int
               END AS dias_desde_inicio,
-              COALESCE(now() >= re.inicio_aprendizaje + interval '2 days', false) AS deteccion_preliminar,
-              COALESCE(now() >= re.fin_aprendizaje, false) AS rutina_disponible,
+              COALESCE(re.fase IN ('pre_rutina', 'validada_7', 'confirmada', 'evaluada_14'), false) AS deteccion_preliminar,
+              COALESCE(re.fase IN ('pre_rutina', 'validada_7', 'confirmada', 'evaluada_14'), false) AS rutina_disponible,
               COALESCE(now() >= re.fin_reconfirmacion, false) AS periodo_confirmacion_completo,
-              COALESCE(
-                now() >= re.fin_reconfirmacion
-                AND EXISTS (
-                  SELECT 1
-                  FROM rutina_detalle rd
-                  WHERE UPPER(TRIM(rd.mac)) = UPPER(TRIM(b.mac))
-                    AND rd.dias_aprendizaje >= 2
-                    AND rd.visitas_aprendizaje >= 2
-                    AND rd.dias_reconfirmacion >= 2
-                ),
-                false
-              ) AS rutina_confirmada
+              COALESCE(re.fase = 'confirmada', false) AS rutina_confirmada
        FROM beacons b
        LEFT JOIN rutina_estado re ON UPPER(TRIM(re.mac)) = UPPER(TRIM(b.mac))
        WHERE b.asignado = true

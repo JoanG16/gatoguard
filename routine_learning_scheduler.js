@@ -3,7 +3,7 @@ const path = require('path');
 
 const DAILY_INTERVAL_MS = Number(process.env.ROUTINE_LEARNING_INTERVAL_MS) > 0
   ? Number(process.env.ROUTINE_LEARNING_INTERVAL_MS)
-  : 24 * 60 * 60 * 1000;
+  : 60 * 60 * 1000;
 const JOB_PATH = path.join(__dirname, 'routine_learning_job.js');
 let child = null;
 let timer = null;

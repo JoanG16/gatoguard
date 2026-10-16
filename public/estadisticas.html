@@ -86,16 +86,18 @@
         detalle.className='mt-1 text-sm text-on-surface-variant';
         if(!estado.inicio_aprendizaje){
           detalle.textContent='Esperando los primeros cambios de zona para iniciar el aprendizaje.';
-        }else if(estado.rutina_confirmada){
-          detalle.textContent='Rutina reconfirmada: completó 7 días de aprendizaje y 7 días adicionales de observación.';
-        }else if(estado.periodo_confirmacion_completo){
-          detalle.textContent='Completó los 14 días de observación, pero todavía no hay suficientes repeticiones para reconfirmar una rutina.';
-        }else if(estado.rutina_disponible){
-          detalle.textContent=`Rutina aprendida tras 7 días. Reconfirmación prevista para ${fechaHoraTexto(estado.fin_reconfirmacion)}.`;
-        }else if(estado.deteccion_preliminar){
-          detalle.textContent=`Detección preliminar activa desde el día 2. La rutina estará disponible el ${fechaHoraTexto(estado.fin_aprendizaje)}.`;
+        }else if(estado.fase==='confirmada'){
+          detalle.textContent='Rutina confirmada a los 14 días: la pre-rutina del día 3 se validó el día 7 y se mantuvo hasta el día 14.';
+        }else if(estado.fase==='evaluada_14'){
+          detalle.textContent='Rutina evaluada con los 14 días completos; el comportamiento no se mantuvo igual a la pre-rutina inicial.';
+        }else if(estado.fase==='validada_7'){
+          detalle.textContent=`Pre-rutina validada el día 7 (los días 4 a 7 coinciden). Confirmación final el ${fechaHoraTexto(estado.fin_reconfirmacion)}.`;
+        }else if(estado.fase==='reevaluacion_14'){
+          detalle.textContent=`El día 7 no coincidió con la pre-rutina del día 3. Sin alertas de rutina hasta evaluar los 14 días el ${fechaHoraTexto(estado.fin_reconfirmacion)}.`;
+        }else if(estado.fase==='pre_rutina'){
+          detalle.textContent=`Pre-rutina aprendida en 3 días y con alertas activas. Validación el día 7 (${estado.dias_desde_inicio} de 7 días).`;
         }else{
-          detalle.textContent=`Aprendizaje inicial (${estado.dias_desde_inicio} de 2 días). La detección preliminar comienza el ${fechaHoraTexto(new Date(new Date(estado.inicio_aprendizaje).getTime()+2*86400000))}.`;
+          detalle.textContent=`Aprendiendo (${estado.dias_desde_inicio} de 3 días). La pre-rutina estará lista el ${fechaHoraTexto(estado.fin_aprendizaje)}.`;
         }
         tarjeta.append(titulo,detalle);
         contenedor.append(tarjeta);

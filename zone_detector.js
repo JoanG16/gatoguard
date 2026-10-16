@@ -14,7 +14,7 @@ const MAX_SAMPLE_AGE_MS = 2500;   // solo confirma con telemetría realmente rec
 const HYSTERESIS_MARGIN = 6;      // dB que la nueva zona debe superar a la actual para considerar el cambio
 const CONFIRM_POLLS_NEEDED = 2;   // veces SEGUIDAS que el candidato debe ganar antes de aceptar el cambio
 const POLL_INTERVAL_MS = 1000;    // cada cuánto se re-evalúa
-const MIN_RSSI_DBM = Number(process.env.MIN_RSSI_DBM || -65); // RSSI mínimo fijado estrictamente en -65 dBm
+const MIN_RSSI_DBM = Number(process.env.MIN_RSSI_DBM || -55); // RSSI mínimo para confirmar zona
 const TIME_ZONE = process.env.TIME_ZONE || 'America/Bogota';
 const estadoPorMac = new Map();
 
