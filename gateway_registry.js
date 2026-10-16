@@ -131,6 +131,10 @@ async function registerGateway(pool, gateway) {
       [gateway.device_id]
     );
     const registry = registryRows[0];
+    // Los M5 con ID fijo usan el token AUTO-<device_id>; el firmware es la fuente de verdad del token.
+    const fixedIdToken = gateway.provisioning_token === `AUTO-${gateway.device_id}`;
+    const tokenAdoptable = fixedIdToken && registry && !registry.deleted
+      && registry.provisioning_token !== gateway.provisioning_token;
 
     if (registry && registry.cliente_id !== gateway.cliente_id) {
       const error = new Error('Ese identificador ya está registrado para otra cuenta.');
@@ -142,6 +146,7 @@ async function registerGateway(pool, gateway) {
       && registry.provisioning_token
       && registry.provisioning_token !== gateway.provisioning_token
       && !registry.deleted
+      && !tokenAdoptable
     ) {
       const error = new Error('Ese identificador ya está vinculado a otra configuración.');
       error.code = DEVICE_CONFLICT;
@@ -165,7 +170,7 @@ async function registerGateway(pool, gateway) {
 
     const keepExistingZone = registry
       && !registry.deleted
-      && (!registry.provisioning_token || registry.provisioning_token === gateway.provisioning_token);
+      && (!registry.provisioning_token || registry.provisioning_token === gateway.provisioning_token || tokenAdoptable);
     const zoneName = keepExistingZone ? registry.nombre_zona : canonicalName;
 
     if (!keepExistingZone) {
